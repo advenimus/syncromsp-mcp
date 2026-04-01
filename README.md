@@ -119,18 +119,50 @@ After navigating to "tickets" → domain tools visible:
 | **time** | Timers and time logs | List, update |
 | **admin** | Search, users, vendors, wiki, portal, settings, purchase orders, and more | Various |
 
-## Docker Deployment
+## Docker Deployment (Remote MCP with OAuth)
 
-For team/remote access with OAuth2 authentication:
+For connecting Claude.ai or other remote MCP clients with built-in OAuth 2.1 authentication:
 
 ```bash
 cp .env.example .env
-# Edit .env with your Syncro credentials and OAuth2 settings
+# Edit .env with your Syncro credentials and base URL
+```
 
+Set `MCP_BASE_URL` to your public HTTPS URL (required for OAuth):
+
+```bash
+SYNCRO_API_KEY=your-api-key
+SYNCRO_SUBDOMAIN=your-subdomain
+MCP_BASE_URL=https://mcp.yourcompany.com
+```
+
+Then deploy:
+
+```bash
 docker compose up -d
 ```
 
-This starts the MCP server with an [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) sidecar for secure access. See `.env.example` for all configuration options.
+### Connecting Claude.ai
+
+1. Deploy the server with HTTPS (via reverse proxy like Traefik, Caddy, or nginx)
+2. In Claude.ai, go to **Settings** > **MCP Servers** > **Add Remote Server**
+3. Enter your MCP URL: `https://mcp.yourcompany.com/mcp`
+4. Claude.ai will auto-discover the OAuth endpoints and authenticate
+
+The server implements the full MCP OAuth 2.1 + PKCE spec:
+- `/.well-known/oauth-authorization-server` — discovery metadata
+- `/authorize` — authorization endpoint (auto-approves since you control the server)
+- `/token` — token endpoint with PKCE S256 validation
+- `/register` — dynamic client registration (RFC 7591)
+- Bearer token validation on all MCP requests
+
+### Disabling Auth
+
+For testing or private networks, disable OAuth:
+
+```bash
+MCP_AUTH=false docker compose up -d
+```
 
 ## Environment Variables
 
@@ -140,6 +172,8 @@ This starts the MCP server with an [oauth2-proxy](https://oauth2-proxy.github.io
 | `SYNCRO_SUBDOMAIN` | Yes | Your Syncro subdomain |
 | `MCP_TRANSPORT` | No | `stdio` (default) or `http` |
 | `MCP_PORT` | No | HTTP port (default: `8080`) |
+| `MCP_BASE_URL` | For OAuth | Public HTTPS URL (e.g., `https://mcp.yourcompany.com`) |
+| `MCP_AUTH` | No | `true` (default) or `false` to disable OAuth |
 
 ## API Rate Limits
 
