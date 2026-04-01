@@ -27,25 +27,45 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     outputs:
-      released: ${{ steps.release.outputs.new_release_published }}
-      version: ${{ steps.release.outputs.new_release_version }}
+      released: ${{ steps.release-check.outputs.released }}
+      version: ${{ steps.release-check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
       - run: npm ci
       - run: npm run build
+      - name: Install semantic-release plugins
+        run: npm install --no-save semantic-release @semantic-release/commit-analyzer @semantic-release/release-notes-generator @semantic-release/npm @semantic-release/github
       - name: Semantic Release
-        id: release
+        id: semantic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npx semantic-release
+      - name: Check release output
+        id: release-check
+        run: |
+          if [ -f .release-version ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "version=$(cat .release-version)" >> "$GITHUB_OUTPUT"
+          else
+            # Check if package.json version changed
+            VERSION=$(node -p "require('./package.json').version")
+            REMOTE_VERSION=$(npm view @advenimus/syncromsp-mcp version 2>/dev/null || echo "0.0.0")
+            if [ "$VERSION" != "$REMOTE_VERSION" ] && [ "$VERSION" != "0.1.0" ]; then
+              echo "released=true" >> "$GITHUB_OUTPUT"
+              echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            else
+              echo "released=false" >> "$GITHUB_OUTPUT"
+              echo "version=" >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
   mcpb:
     needs: release
