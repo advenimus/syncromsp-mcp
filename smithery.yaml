@@ -1,0 +1,24 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - syncroApiKey
+      - syncroSubdomain
+    properties:
+      syncroApiKey:
+        type: string
+        description: Your Syncro API key (found in Admin > API Tokens)
+      syncroSubdomain:
+        type: string
+        description: Your Syncro subdomain (e.g., 'mycompany' from mycompany.syncromsp.com)
+  commandFunction: |-
+    (config) => ({
+      command: 'node',
+      args: ['dist/index.js'],
+      env: {
+        SYNCRO_API_KEY: config.syncroApiKey,
+        SYNCRO_SUBDOMAIN: config.syncroSubdomain,
+        MCP_TRANSPORT: 'stdio'
+      }
+    })

@@ -1,0 +1,64 @@
+{
+  "manifest_version": "0.3",
+  "name": "syncromsp-mcp",
+  "display_name": "SyncroMSP MCP Server",
+  "version": "0.1.0",
+  "description": "MCP server for SyncroMSP — tickets, customers, assets, invoices, and 30+ resource types for AI assistants",
+  "long_description": "A fully-featured Model Context Protocol server for the SyncroMSP IT/MSP platform. Provides AI assistants with access to 170 API endpoints across 15 domains using a lazy-loaded navigation pattern that keeps token usage efficient. Supports full CRUD for tickets, customers, invoices, estimates, appointments, products, RMM alerts, and more.",
+  "author": {
+    "name": "Advenimus",
+    "url": "https://github.com/advenimus"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/advenimus/syncromsp-mcp"
+  },
+  "homepage": "https://github.com/advenimus/syncromsp-mcp",
+  "license": "MIT",
+  "keywords": [
+    "syncro",
+    "syncromsp",
+    "msp",
+    "rmm",
+    "psa",
+    "it-management",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {
+        "SYNCRO_API_KEY": "${user_config.syncro_api_key}",
+        "SYNCRO_SUBDOMAIN": "${user_config.syncro_subdomain}"
+      }
+    }
+  },
+  "tools_generated": true,
+  "user_config": {
+    "syncro_api_key": {
+      "type": "string",
+      "title": "Syncro API Key",
+      "description": "Your Syncro API key (found in Admin > API Tokens)",
+      "sensitive": true,
+      "required": true
+    },
+    "syncro_subdomain": {
+      "type": "string",
+      "title": "Syncro Subdomain",
+      "description": "Your Syncro subdomain (e.g., 'mycompany' from mycompany.syncromsp.com)",
+      "sensitive": false,
+      "required": true
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    },
+    "claude_desktop": ">=0.10.0"
+  }
+}

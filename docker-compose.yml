@@ -1,0 +1,51 @@
+services:
+  syncro-mcp:
+    build: .
+    container_name: syncromsp-mcp
+    restart: unless-stopped
+    environment:
+      - SYNCRO_API_KEY=${SYNCRO_API_KEY}
+      - SYNCRO_SUBDOMAIN=${SYNCRO_SUBDOMAIN}
+      - MCP_TRANSPORT=http
+      - MCP_PORT=8080
+    expose:
+      - "8080"
+    networks:
+      - mcp-net
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    container_name: syncromsp-oauth-proxy
+    restart: unless-stopped
+    ports:
+      - "${PROXY_PORT:-8443}:4180"
+    environment:
+      # OAuth2 provider settings (example: Google)
+      - OAUTH2_PROXY_PROVIDER=${OAUTH2_PROVIDER:-google}
+      - OAUTH2_PROXY_CLIENT_ID=${OAUTH2_CLIENT_ID}
+      - OAUTH2_PROXY_CLIENT_SECRET=${OAUTH2_CLIENT_SECRET}
+
+      # Cookie settings
+      - OAUTH2_PROXY_COOKIE_SECRET=${OAUTH2_COOKIE_SECRET}
+      - OAUTH2_PROXY_COOKIE_SECURE=true
+
+      # Upstream (the MCP server)
+      - OAUTH2_PROXY_UPSTREAMS=http://syncro-mcp:8080
+
+      # Who can access
+      - OAUTH2_PROXY_EMAIL_DOMAINS=${OAUTH2_EMAIL_DOMAINS:-*}
+
+      # Listener
+      - OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180
+
+      # Pass auth headers upstream
+      - OAUTH2_PROXY_PASS_ACCESS_TOKEN=true
+      - OAUTH2_PROXY_PASS_AUTHORIZATION_HEADER=true
+    depends_on:
+      - syncro-mcp
+    networks:
+      - mcp-net
+
+networks:
+  mcp-net:
+    driver: bridge
