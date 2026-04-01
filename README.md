@@ -1,24 +1,45 @@
 # SyncroMSP MCP Server
 
-A fully-featured [Model Context Protocol](https://modelcontextprotocol.io) server for the [SyncroMSP](https://syncromsp.com) IT/MSP platform. Provides AI assistants with access to tickets, customers, assets, invoices, and 30+ resource types through a domain-navigation architecture that keeps token usage efficient.
+A fully-featured [Model Context Protocol](https://modelcontextprotocol.io) server for the [SyncroMSP](https://syncromsp.com) IT/MSP platform. Gives AI assistants full access to tickets, customers, assets, invoices, and 30+ resource types.
 
 ## Features
 
 - **170 API endpoints** across 15 domains
-- **Flat mode** (default) — all tools available immediately, works with Claude Desktop and Claude Code
-- **Navigation mode** (optional) — lazy-loaded domains for lower token usage
 - **Full CRUD** for tickets, customers, invoices, estimates, appointments, contracts, products, and more
 - **Ticket comments** — email replies, public notes, and private/internal notes
 - **Line items** — add products from catalog or manual entries to tickets, invoices, estimates, schedules
 - **RMM alerts** — create, read, mute, resolve alerts on assets
 - **Rate limiting** — built-in 180 req/min token bucket (Syncro API limit)
 - **Confirmation required** for all destructive operations (DELETE, etc.)
-- **Docker deployment** with native MCP OAuth 2.1 for Claude.ai remote connection
 - **Auto-update check** — warns on startup if a newer version is available
 
-## Quick Start
+### Deployment Options
 
-### Claude Code
+| Method | Best For | Auto-Updates |
+|--------|----------|-------------|
+| [**Claude Code**](#claude-code) | Developers using Claude Code CLI | Yes (npx) |
+| [**Claude Desktop**](#claude-desktop) | Local desktop app users | Yes (npx) |
+| [**Docker + Claude.ai**](#docker-deployment-remote-mcp) | Teams, remote access, Claude.ai web | Yes (Watchtower) |
+| [**From Source**](#from-source) | Development and customization | Manual |
+
+---
+
+## Prerequisites
+
+### Getting Your Syncro API Key
+
+1. Log in to your Syncro account
+2. Go to **Admin** > **API Tokens**
+3. Click **+ New Token**
+4. Select the **Custom Permissions** tab
+5. Name your token and set permissions for the resources you need
+6. Click **Create** and copy the token (it cannot be retrieved later)
+
+Your **subdomain** is the part before `.syncromsp.com` in your Syncro URL (e.g., `mycompany` from `mycompany.syncromsp.com`).
+
+---
+
+## Claude Code
 
 ```bash
 claude mcp add syncromsp \
@@ -27,13 +48,17 @@ claude mcp add syncromsp \
   -- npx syncromsp-mcp
 ```
 
-### Claude Desktop
+That's it. Claude Code will download and run the latest version automatically.
 
-#### Option 1: MCPB Extension (Recommended)
+---
+
+## Claude Desktop
+
+### Option 1: MCPB Extension
 
 Download the latest `.mcpb` file from [Releases](https://github.com/advenimus/syncromsp-mcp/releases) and double-click to install. Claude Desktop will prompt you for your API key and subdomain.
 
-#### Option 2: Manual Configuration
+### Option 2: Manual Configuration
 
 Add to your `claude_desktop_config.json`:
 
@@ -42,7 +67,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "syncromsp": {
       "command": "npx",
-      "args": ["syncromsp-mcp"],
+      "args": ["-y", "syncromsp-mcp"],
       "env": {
         "SYNCRO_API_KEY": "your-api-key",
         "SYNCRO_SUBDOMAIN": "your-subdomain"
@@ -56,42 +81,162 @@ Config file location:
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
-### From Source
+Restart Claude Desktop after saving. The server updates automatically via npx on each restart.
+
+---
+
+## Docker Deployment (Remote MCP)
+
+Deploy as a Docker container for remote access from Claude.ai, shared team usage, or running on a server. Includes built-in OAuth 2.1 authentication so only authorized users can connect.
+
+### Step 1: Clone and Configure
 
 ```bash
 git clone https://github.com/advenimus/syncromsp-mcp.git
 cd syncromsp-mcp
-npm install
-npm run build
-
-# Set environment variables
-export SYNCRO_API_KEY=your-api-key
-export SYNCRO_SUBDOMAIN=your-subdomain
-
-# Run
-npm start
+cp .env.example .env
 ```
 
-## Getting Your API Key
+Edit `.env` with your settings:
 
-1. Log in to your Syncro account
-2. Go to **Admin** > **API Tokens**
-3. Click **+ New Token**
-4. Select the **Custom Permissions** tab
-5. Name your token and set permissions for the resources you need
-6. Click **Create** and copy the token (it cannot be retrieved later)
+```bash
+# Required: Syncro credentials
+SYNCRO_API_KEY=your-api-key
+SYNCRO_SUBDOMAIN=your-subdomain
 
-Your subdomain is the part before `.syncromsp.com` in your Syncro URL (e.g., `mycompany` from `mycompany.syncromsp.com`).
+# Required: The public URL where this server will be reachable
+# Must be HTTPS for production (put behind Traefik, Caddy, nginx, etc.)
+MCP_BASE_URL=https://mcp.yourcompany.com
 
-## How It Works
+# Required: Access key that users must enter to authorize connections
+# Generate one with: openssl rand -hex 32
+MCP_AUTH_SECRET=your-strong-secret-here
+```
 
-### Tool Modes
+### Step 2: Deploy
 
-**Flat mode** (default, `MCP_TOOL_MODE=flat`): All 170 tools are registered at startup. Works with all MCP clients including Claude Desktop and Claude Code.
+```bash
+docker compose up -d
+```
 
-**Navigation mode** (`MCP_TOOL_MODE=navigation`): Uses a lazy-loading pattern — start with 3 navigation tools, then load domain-specific tools on demand. Lower token usage but requires client support for dynamic tool lists (works with Claude Code, not Claude Desktop).
+The container runs on port 8080 by default. You need a reverse proxy (Traefik, Caddy, nginx) in front to provide HTTPS.
 
-### Available Domains
+### Step 3: Connect from Claude.ai
+
+1. In Claude.ai, go to **Settings** > **MCP Servers** > **Add Remote Server**
+2. Enter your MCP URL: `https://mcp.yourcompany.com/mcp`
+3. Claude.ai will auto-discover the OAuth endpoints
+4. A login page appears — enter the `MCP_AUTH_SECRET` you configured in Step 1
+5. Once authenticated, Claude.ai connects and all 170 tools become available
+
+### How Authentication Works
+
+The server implements the [MCP OAuth 2.1 + PKCE](https://spec.modelcontextprotocol.io) spec with an access key gate:
+
+```
+Client connects → 401 Unauthorized
+  → Client discovers /.well-known/oauth-authorization-server
+  → Client dynamically registers (RFC 7591)
+  → Client redirects user to /authorize
+  → User sees login page, enters MCP_AUTH_SECRET
+  → Correct key: auth code issued → token granted → MCP access
+  → Wrong key: 403 Access Denied, connection rejected
+```
+
+- Tokens are validated on every MCP request via bearer auth
+- Access tokens expire after 24 hours (refresh tokens last 30 days)
+- Timing-safe secret comparison prevents side-channel attacks
+- Server **refuses to start** if `MCP_AUTH_SECRET` is not set
+
+### Example: Docker with Traefik
+
+```yaml
+services:
+  syncro-mcp:
+    image: ghcr.io/advenimus/syncromsp-mcp:latest
+    container_name: syncromsp-mcp
+    restart: unless-stopped
+    environment:
+      - SYNCRO_API_KEY=${SYNCRO_API_KEY}
+      - SYNCRO_SUBDOMAIN=${SYNCRO_SUBDOMAIN}
+      - MCP_TRANSPORT=http
+      - MCP_PORT=8080
+      - MCP_BASE_URL=https://mcp.yourcompany.com
+      - MCP_AUTH_SECRET=${MCP_AUTH_SECRET}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mcp.rule=Host(`mcp.yourcompany.com`)"
+      - "traefik.http.routers.mcp.entrypoints=websecure"
+      - "traefik.http.routers.mcp.tls.certresolver=letsencrypt"
+      - "traefik.http.services.mcp.loadbalancer.server.port=8080"
+```
+
+### Example: Docker with Caddy
+
+```yaml
+services:
+  syncro-mcp:
+    image: ghcr.io/advenimus/syncromsp-mcp:latest
+    container_name: syncromsp-mcp
+    restart: unless-stopped
+    environment:
+      - SYNCRO_API_KEY=${SYNCRO_API_KEY}
+      - SYNCRO_SUBDOMAIN=${SYNCRO_SUBDOMAIN}
+      - MCP_TRANSPORT=http
+      - MCP_BASE_URL=https://mcp.yourcompany.com
+      - MCP_AUTH_SECRET=${MCP_AUTH_SECRET}
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+
+volumes:
+  caddy_data:
+```
+
+`Caddyfile`:
+```
+mcp.yourcompany.com {
+    reverse_proxy syncro-mcp:8080
+}
+```
+
+### Disabling Auth (Not Recommended)
+
+For testing on private networks only:
+
+```bash
+MCP_AUTH=false docker compose up -d
+```
+
+**Warning:** Without auth, anyone who can reach the URL gets full access to your Syncro account.
+
+---
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SYNCRO_API_KEY` | Yes | — | Your Syncro API token |
+| `SYNCRO_SUBDOMAIN` | Yes | — | Your Syncro subdomain |
+| `MCP_TRANSPORT` | No | `stdio` | `stdio` (local) or `http` (Docker/remote) |
+| `MCP_PORT` | No | `8080` | HTTP listen port |
+| `MCP_BASE_URL` | For Docker | — | Public HTTPS URL (e.g., `https://mcp.yourcompany.com`) |
+| `MCP_AUTH` | No | `true` | `true` or `false` to disable OAuth |
+| `MCP_AUTH_SECRET` | For Docker | — | Access key users enter to authorize (min 8 chars) |
+| `MCP_TOOL_MODE` | No | `flat` | `flat` (all tools) or `navigation` (lazy domains) |
+
+---
+
+## Available Domains
 
 | Domain | Description | Key Operations |
 |--------|-------------|---------------|
@@ -111,104 +256,23 @@ Your subdomain is the part before `.syncromsp.com` in your Syncro URL (e.g., `my
 | **time** | Timers and time logs | List, update |
 | **admin** | Search, users, vendors, wiki, portal, settings, purchase orders, and more | Various |
 
-## Docker Deployment (Remote MCP with OAuth)
-
-For connecting Claude.ai or other remote MCP clients with built-in OAuth 2.1 authentication:
-
-```bash
-cp .env.example .env
-# Edit .env with your Syncro credentials and base URL
-```
-
-Configure your `.env`:
-
-```bash
-SYNCRO_API_KEY=your-api-key
-SYNCRO_SUBDOMAIN=your-subdomain
-MCP_BASE_URL=https://mcp.yourcompany.com
-MCP_AUTH_SECRET=your-strong-secret-here    # Required! Users must know this to connect
-```
-
-Generate a strong secret: `openssl rand -hex 32`
-
-Then deploy:
-
-```bash
-docker compose up -d
-```
-
-### Connecting Claude.ai
-
-1. Deploy the server with HTTPS (via reverse proxy like Traefik, Caddy, or nginx)
-2. In Claude.ai, go to **Settings** > **MCP Servers** > **Add Remote Server**
-3. Enter your MCP URL: `https://mcp.yourcompany.com/mcp`
-4. Claude.ai will auto-discover the OAuth endpoints
-5. You'll be shown a login page — enter the `MCP_AUTH_SECRET` you configured
-6. Once authenticated, Claude.ai gets a bearer token and connects
-
-The server implements the full MCP OAuth 2.1 + PKCE spec:
-- `/.well-known/oauth-authorization-server` — discovery metadata
-- `/authorize` — shows login page requiring the access key (`MCP_AUTH_SECRET`)
-- `/token` — token endpoint with PKCE S256 validation
-- `/register` — dynamic client registration (RFC 7591)
-- Bearer token validation on all MCP requests
-- **Connections without the correct access key are rejected**
-
-### Disabling Auth
-
-For testing or private networks, disable OAuth:
-
-```bash
-MCP_AUTH=false docker compose up -d
-```
-
-## Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `SYNCRO_API_KEY` | Yes | Your Syncro API token |
-| `SYNCRO_SUBDOMAIN` | Yes | Your Syncro subdomain |
-| `MCP_TRANSPORT` | No | `stdio` (default) or `http` |
-| `MCP_PORT` | No | HTTP port (default: `8080`) |
-| `MCP_BASE_URL` | For OAuth | Public HTTPS URL (e.g., `https://mcp.yourcompany.com`) |
-| `MCP_AUTH` | No | `true` (default) or `false` to disable OAuth |
-| `MCP_AUTH_SECRET` | For OAuth | Access key users must enter to authorize (min 8 chars) |
-| `MCP_TOOL_MODE` | No | `flat` (default, all tools) or `navigation` (lazy domains) |
-
-## API Rate Limits
-
-Syncro enforces a rate limit of **180 requests per minute per IP**. The server includes a built-in token bucket rate limiter that automatically queues requests when approaching the limit.
-
-## Important Notes
-
-- **Destructive operations** (DELETE, remove line item, etc.) require explicit confirmation
-- **Line items** cannot be added inline during resource creation — always add them via separate API calls after creating the parent resource
-- **Ticket comments** have 3 modes: email reply, public note, and private/internal note
-- Some resources have no DELETE endpoint (vendors, leads, products, assets) — use `disabled: true` via update instead
+---
 
 ## Staying Up to Date
 
 The server checks for updates on startup and logs a warning if a newer version is available.
 
-### npx
+| Method | How to Update |
+|--------|--------------|
+| **npx / Claude Desktop** | Automatic — npx pulls latest on each run |
+| **Docker** | `docker compose pull && docker compose up -d` |
+| **Docker (auto)** | Add [Watchtower](https://containrrr.dev/watchtower/) for automatic daily updates |
+| **MCPB** | Download latest `.mcpb` from [Releases](https://github.com/advenimus/syncromsp-mcp/releases) |
+| **From Source** | `git pull && npm install && npm run build` |
 
-Always uses the latest published version automatically:
-```bash
-npx syncromsp-mcp@latest
-```
+### Auto-Update with Watchtower
 
-### Claude Desktop (MCPB)
-
-Download the latest `.mcpb` from [Releases](https://github.com/advenimus/syncromsp-mcp/releases) and reinstall.
-
-### Docker
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-For **automatic updates**, add [Watchtower](https://containrrr.dev/watchtower/):
+Add to your `docker-compose.yml`:
 
 ```yaml
 services:
@@ -217,16 +281,33 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - WATCHTOWER_POLL_INTERVAL=86400  # Check daily
+      - WATCHTOWER_POLL_INTERVAL=86400  # Check every 24 hours
       - WATCHTOWER_CLEANUP=true
 ```
 
-### From Source
+---
+
+## Important Notes
+
+- **Destructive operations** (DELETE, remove line item, etc.) require explicit confirmation
+- **Line items** cannot be added inline during resource creation — always add them via separate API calls after creating the parent resource
+- **Ticket comments** have 3 modes: email reply (`do_not_email: false`), public note (`do_not_email: true, hidden: false`), and private note (`hidden: true`)
+- Some resources have no DELETE endpoint (vendors, leads, products, assets) — use `disabled: true` via update instead
+- **Rate limit**: 180 requests per minute per IP (enforced by Syncro, managed by built-in rate limiter)
+
+---
+
+## From Source
 
 ```bash
-git pull
+git clone https://github.com/advenimus/syncromsp-mcp.git
+cd syncromsp-mcp
 npm install
 npm run build
+
+export SYNCRO_API_KEY=your-api-key
+export SYNCRO_SUBDOMAIN=your-subdomain
+npm start
 ```
 
 ## Development
