@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "conduit": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/Applications/Conduit.app/Contents/Resources/mcp/dist/index.js"
+      ],
+      "env": {
+        "CONDUIT_SOCKET_PATH": "/Users/chris/Library/Application Support/conduit/conduit.sock"
+      }
+    }
+  }
+}

@@ -9,6 +9,7 @@ permissions:
   packages: write
   issues: write
   pull-requests: write
+  id-token: write
 
 jobs:
   test:
@@ -59,7 +60,7 @@ jobs:
           else
             # Check if package.json version changed
             VERSION=$(node -p "require('./package.json').version")
-            REMOTE_VERSION=$(npm view @advenimus/syncromsp-mcp version 2>/dev/null || echo "0.0.0")
+            REMOTE_VERSION=$(npm view syncromsp-mcp version 2>/dev/null || echo "0.0.0")
             if [ "$VERSION" != "$REMOTE_VERSION" ] && [ "$VERSION" != "0.1.0" ]; then
               echo "released=true" >> "$GITHUB_OUTPUT"
               echo "version=$VERSION" >> "$GITHUB_OUTPUT"

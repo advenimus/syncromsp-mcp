@@ -56,7 +56,7 @@ export function checkForUpdates(): void {
         console.error(
           `\n⚠ SyncroMSP MCP v${latestVersion} is available (you have v${currentVersion}).` +
             `\n  Update: ${release.html_url}` +
-            `\n  npx: npx @advenimus/syncromsp-mcp@latest` +
+            `\n  npx: npx syncromsp-mcp@latest` +
             `\n  Docker: docker compose pull && docker compose up -d\n`
         );
       }

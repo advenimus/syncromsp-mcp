@@ -22,7 +22,7 @@ A fully-featured [Model Context Protocol](https://modelcontextprotocol.io) serve
 claude mcp add syncromsp \
   --env SYNCRO_API_KEY=your-api-key \
   --env SYNCRO_SUBDOMAIN=your-subdomain \
-  -- npx @advenimus/syncromsp-mcp
+  -- npx syncromsp-mcp
 ```
 
 ### Claude Desktop
@@ -40,7 +40,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "syncromsp": {
       "command": "npx",
-      "args": ["@advenimus/syncromsp-mcp"],
+      "args": ["syncromsp-mcp"],
       "env": {
         "SYNCRO_API_KEY": "your-api-key",
         "SYNCRO_SUBDOMAIN": "your-subdomain"
@@ -195,7 +195,7 @@ The server checks for updates on startup and logs a warning if a newer version i
 
 Always uses the latest published version automatically:
 ```bash
-npx @advenimus/syncromsp-mcp@latest
+npx syncromsp-mcp@latest
 ```
 
 ### Claude Desktop (MCPB)

@@ -1,10 +1,7 @@
 {
-  "name": "@advenimus/syncromsp-mcp",
+  "name": "syncromsp-mcp",
   "version": "0.1.0",
-  "publishConfig": {
-    "access": "public"
-  },
-  "description": "MCP server for SyncroMSP — full API coverage for tickets, customers, assets, invoices, and 30+ resource types",
+    "description": "MCP server for SyncroMSP — full API coverage for tickets, customers, assets, invoices, and 30+ resource types",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
