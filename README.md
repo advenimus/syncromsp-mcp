@@ -120,13 +120,16 @@ cp .env.example .env
 # Edit .env with your Syncro credentials and base URL
 ```
 
-Set `MCP_BASE_URL` to your public HTTPS URL (required for OAuth):
+Configure your `.env`:
 
 ```bash
 SYNCRO_API_KEY=your-api-key
 SYNCRO_SUBDOMAIN=your-subdomain
 MCP_BASE_URL=https://mcp.yourcompany.com
+MCP_AUTH_SECRET=your-strong-secret-here    # Required! Users must know this to connect
 ```
+
+Generate a strong secret: `openssl rand -hex 32`
 
 Then deploy:
 
@@ -139,14 +142,17 @@ docker compose up -d
 1. Deploy the server with HTTPS (via reverse proxy like Traefik, Caddy, or nginx)
 2. In Claude.ai, go to **Settings** > **MCP Servers** > **Add Remote Server**
 3. Enter your MCP URL: `https://mcp.yourcompany.com/mcp`
-4. Claude.ai will auto-discover the OAuth endpoints and authenticate
+4. Claude.ai will auto-discover the OAuth endpoints
+5. You'll be shown a login page — enter the `MCP_AUTH_SECRET` you configured
+6. Once authenticated, Claude.ai gets a bearer token and connects
 
 The server implements the full MCP OAuth 2.1 + PKCE spec:
 - `/.well-known/oauth-authorization-server` — discovery metadata
-- `/authorize` — authorization endpoint (auto-approves since you control the server)
+- `/authorize` — shows login page requiring the access key (`MCP_AUTH_SECRET`)
 - `/token` — token endpoint with PKCE S256 validation
 - `/register` — dynamic client registration (RFC 7591)
 - Bearer token validation on all MCP requests
+- **Connections without the correct access key are rejected**
 
 ### Disabling Auth
 
@@ -166,6 +172,7 @@ MCP_AUTH=false docker compose up -d
 | `MCP_PORT` | No | HTTP port (default: `8080`) |
 | `MCP_BASE_URL` | For OAuth | Public HTTPS URL (e.g., `https://mcp.yourcompany.com`) |
 | `MCP_AUTH` | No | `true` (default) or `false` to disable OAuth |
+| `MCP_AUTH_SECRET` | For OAuth | Access key users must enter to authorize (min 8 chars) |
 | `MCP_TOOL_MODE` | No | `flat` (default, all tools) or `navigation` (lazy domains) |
 
 ## API Rate Limits

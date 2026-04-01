@@ -43,11 +43,22 @@ if (transport === "http") {
 
   const port = parseInt(process.env.MCP_PORT || "8080", 10);
   const useAuth = process.env.MCP_AUTH !== "false";
+  const authSecret = process.env.MCP_AUTH_SECRET;
   const baseUrl = process.env.MCP_BASE_URL || `http://localhost:${port}`;
   const mcpServerUrl = new URL(baseUrl);
 
+  if (useAuth && !authSecret) {
+    console.error(
+      "ERROR: MCP_AUTH_SECRET is required when auth is enabled.\n" +
+        "  Set MCP_AUTH_SECRET to a strong secret (min 8 chars) in your environment.\n" +
+        "  Or set MCP_AUTH=false to disable auth (not recommended for public deployments)."
+    );
+    process.exit(1);
+  }
+
   const app = express();
   app.use(express.json());
+  app.use(express.urlencoded({ extended: false }));
 
   // Health check (always unauthenticated)
   app.get("/health", (_req, res) => {
@@ -56,7 +67,7 @@ if (transport === "http") {
 
   let authMiddleware: ((req: any, res: any, next: any) => void) | undefined;
 
-  if (useAuth) {
+  if (useAuth && authSecret) {
     const { McpOAuthProvider } = await import("./auth.js");
     const { mcpAuthRouter } = await import(
       "@modelcontextprotocol/sdk/server/auth/router.js"
@@ -68,7 +79,7 @@ if (transport === "http") {
       "@modelcontextprotocol/sdk/server/auth/router.js"
     );
 
-    const oauthProvider = new McpOAuthProvider();
+    const oauthProvider = new McpOAuthProvider(authSecret);
 
     // Install OAuth routes (/.well-known/*, /authorize, /token, /register, /revoke)
     app.use(
@@ -79,15 +90,25 @@ if (transport === "http") {
       })
     );
 
+    // Handle the auth secret validation callback
+    app.post("/authorize/callback", async (req, res) => {
+      const { pending_id, secret } = req.body;
+      if (!pending_id || !secret) {
+        res.status(400).send("Missing required fields");
+        return;
+      }
+      await oauthProvider.handleAuthCallback(pending_id, secret, res);
+    });
+
     authMiddleware = requireBearerAuth({
       verifier: oauthProvider,
       requiredScopes: [],
       resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
     });
 
-    console.error(`OAuth enabled. Issuer: ${mcpServerUrl}`);
+    console.error(`OAuth enabled with access key. Issuer: ${mcpServerUrl}`);
   } else {
-    console.error("Auth disabled (MCP_AUTH=false)");
+    console.error("Auth disabled (MCP_AUTH=false). WARNING: Server is unprotected.");
   }
 
   // Session management
