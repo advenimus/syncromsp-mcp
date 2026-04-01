@@ -2,7 +2,7 @@
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SyncroApiClient } from "./api-client.js";
-import { createServer } from "./server.js";
+import { createServer, type ToolMode } from "./server.js";
 
 const apiKey = process.env.SYNCRO_API_KEY;
 const subdomain = process.env.SYNCRO_SUBDOMAIN;
@@ -16,8 +16,14 @@ if (!apiKey || !subdomain) {
   process.exit(1);
 }
 
+// Tool mode: "flat" registers all 170 tools at startup (works everywhere).
+// "navigation" uses lazy-loaded domains (lower token usage, requires client
+// support for notifications/tools/list_changed).
+// Default: "flat" for maximum compatibility.
+const toolMode = (process.env.MCP_TOOL_MODE || "flat") as ToolMode;
+
 const client = new SyncroApiClient({ apiKey, subdomain });
-const mcpServer = createServer(client);
+const mcpServer = createServer(client, toolMode);
 
 const transport = process.env.MCP_TRANSPORT || "stdio";
 

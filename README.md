@@ -174,6 +174,7 @@ MCP_AUTH=false docker compose up -d
 | `MCP_PORT` | No | HTTP port (default: `8080`) |
 | `MCP_BASE_URL` | For OAuth | Public HTTPS URL (e.g., `https://mcp.yourcompany.com`) |
 | `MCP_AUTH` | No | `true` (default) or `false` to disable OAuth |
+| `MCP_TOOL_MODE` | No | `flat` (default, all tools) or `navigation` (lazy domains) |
 
 ## API Rate Limits
 
