@@ -111,35 +111,41 @@ if (transport === "http") {
     console.error("Auth disabled (MCP_AUTH=false). WARNING: Server is unprotected.");
   }
 
-  // Session management
-  const transports: Record<string, InstanceType<typeof StreamableHTTPServerTransport>> = {};
+  // Session management — each session gets its own Server + Transport pair
+  // because the MCP SDK Server can only bind to one transport at a time
+  const sessions: Record<string, {
+    transport: InstanceType<typeof StreamableHTTPServerTransport>;
+    server: ReturnType<typeof createServer>;
+  }> = {};
 
   const mcpHandler = async (req: any, res: any) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
     try {
-      let sessionTransport: InstanceType<typeof StreamableHTTPServerTransport>;
+      if (sessionId && sessions[sessionId]) {
+        await sessions[sessionId].transport.handleRequest(req, res, req.body);
+        return;
+      }
 
-      if (sessionId && transports[sessionId]) {
-        sessionTransport = transports[sessionId];
-      } else if (!sessionId && isInitializeRequest(req.body)) {
-        sessionTransport = new StreamableHTTPServerTransport({
+      if (!sessionId && isInitializeRequest(req.body)) {
+        // Create a fresh Server + Transport for this session
+        const sessionServer = createServer(client, toolMode);
+        const sessionTransport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (sid) => {
-            transports[sid] = sessionTransport;
+            sessions[sid] = { transport: sessionTransport, server: sessionServer };
           },
         });
         sessionTransport.onclose = () => {
           const sid = sessionTransport.sessionId;
-          if (sid) delete transports[sid];
+          if (sid) delete sessions[sid];
         };
-        await mcpServer.connect(sessionTransport);
-      } else {
-        res.status(400).json({ error: "Bad request: missing session ID or not an init request" });
+        await sessionServer.connect(sessionTransport);
+        await sessionTransport.handleRequest(req, res, req.body);
         return;
       }
 
-      await sessionTransport.handleRequest(req, res, req.body);
+      res.status(400).json({ error: "Bad request: missing session ID or not an init request" });
     } catch (error) {
       console.error("MCP handler error:", error);
       if (!res.headersSent) {
@@ -159,6 +165,14 @@ if (transport === "http") {
     app.delete("/mcp", mcpHandler);
   }
 
+  // Log active session count periodically
+  setInterval(() => {
+    const count = Object.keys(sessions).length;
+    if (count > 0) {
+      console.error(`Active MCP sessions: ${count}`);
+    }
+  }, 60000);
+
   app.listen(port, () => {
     console.error(`SyncroMSP MCP server listening on http://0.0.0.0:${port}`);
     console.error(`Health: http://0.0.0.0:${port}/health`);
@@ -169,8 +183,8 @@ if (transport === "http") {
   });
 
   const shutdown = () => {
-    for (const t of Object.values(transports)) {
-      t.close();
+    for (const s of Object.values(sessions)) {
+      s.transport.close();
     }
     process.exit(0);
   };
