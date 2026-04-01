@@ -3,6 +3,10 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SyncroApiClient } from "./api-client.js";
 import { createServer, type ToolMode } from "./server.js";
+import { checkForUpdates } from "./utils/version-check.js";
+
+// Non-blocking update check on startup
+checkForUpdates();
 
 const apiKey = process.env.SYNCRO_API_KEY;
 const subdomain = process.env.SYNCRO_SUBDOMAIN;

@@ -187,6 +187,49 @@ Syncro enforces a rate limit of **180 requests per minute per IP**. The server i
 - **Ticket comments** have 3 modes: email reply, public note, and private/internal note
 - Some resources have no DELETE endpoint (vendors, leads, products, assets) — use `disabled: true` via update instead
 
+## Staying Up to Date
+
+The server checks for updates on startup and logs a warning if a newer version is available.
+
+### npx
+
+Always uses the latest published version automatically:
+```bash
+npx @advenimus/syncromsp-mcp@latest
+```
+
+### Claude Desktop (MCPB)
+
+Download the latest `.mcpb` from [Releases](https://github.com/advenimus/syncromsp-mcp/releases) and reinstall.
+
+### Docker
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+For **automatic updates**, add [Watchtower](https://containrrr.dev/watchtower/):
+
+```yaml
+services:
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_POLL_INTERVAL=86400  # Check daily
+      - WATCHTOWER_CLEANUP=true
+```
+
+### From Source
+
+```bash
+git pull
+npm install
+npm run build
+```
+
 ## Development
 
 ```bash
