@@ -4,15 +4,17 @@ A fully-featured [Model Context Protocol](https://modelcontextprotocol.io) serve
 
 ## Features
 
-- **170 API endpoints** across 15 lazy-loaded domains
-- **Domain navigation** — only 3-8 tools visible at a time, not 170
+- **170 API endpoints** across 15 domains
+- **Flat mode** (default) — all tools available immediately, works with Claude Desktop and Claude Code
+- **Navigation mode** (optional) — lazy-loaded domains for lower token usage
 - **Full CRUD** for tickets, customers, invoices, estimates, appointments, contracts, products, and more
 - **Ticket comments** — email replies, public notes, and private/internal notes
 - **Line items** — add products from catalog or manual entries to tickets, invoices, estimates, schedules
 - **RMM alerts** — create, read, mute, resolve alerts on assets
 - **Rate limiting** — built-in 180 req/min token bucket (Syncro API limit)
 - **Confirmation required** for all destructive operations (DELETE, etc.)
-- **Docker deployment** with OAuth2 proxy for remote/team access
+- **Docker deployment** with native MCP OAuth 2.1 for Claude.ai remote connection
+- **Auto-update check** — warns on startup if a newer version is available
 
 ## Quick Start
 
@@ -83,21 +85,11 @@ Your subdomain is the part before `.syncromsp.com` in your Syncro URL (e.g., `my
 
 ## How It Works
 
-### Domain Navigation
+### Tool Modes
 
-Instead of loading 170+ tools at once (which would overwhelm any AI), the server uses a **navigation pattern**:
+**Flat mode** (default, `MCP_TOOL_MODE=flat`): All 170 tools are registered at startup. Works with all MCP clients including Claude Desktop and Claude Code.
 
-```
-Startup → 3 tools visible:
-  syncro_navigate("tickets")  → loads ticket tools
-  syncro_status()             → shows current domain
-  syncro_back()               → returns to root
-
-After navigating to "tickets" → domain tools visible:
-  tickets_list, tickets_get, tickets_create, tickets_update,
-  tickets_delete, tickets_comment, tickets_add_line_item, ...
-  syncro_back()
-```
+**Navigation mode** (`MCP_TOOL_MODE=navigation`): Uses a lazy-loading pattern — start with 3 navigation tools, then load domain-specific tools on demand. Lower token usage but requires client support for dynamic tool lists (works with Claude Code, not Claude Desktop).
 
 ### Available Domains
 
