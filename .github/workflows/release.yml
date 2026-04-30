@@ -106,6 +106,28 @@ jobs:
           gh release upload "v${{ needs.release.outputs.version }}" syncromsp-mcp.mcpb \
             --repo ${{ github.repository }} --clobber
 
+  skill:
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync skill version with release tag
+        run: |
+          sed -i "s/^version: .*/version: ${{ needs.release.outputs.version }}/" skills/syncromsp/SKILL.md
+          grep '^version:' skills/syncromsp/SKILL.md
+      - name: Package skill as zip
+        run: |
+          cd skills
+          zip -r "../syncromsp-skill.zip" syncromsp -x "syncromsp/config.json"
+          unzip -l ../syncromsp-skill.zip
+      - name: Upload skill zip to Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "v${{ needs.release.outputs.version }}" syncromsp-skill.zip \
+            --repo ${{ github.repository }} --clobber
+
   docker:
     needs: release
     if: needs.release.outputs.released == 'true'

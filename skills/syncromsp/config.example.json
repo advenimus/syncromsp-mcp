@@ -1,0 +1,22 @@
+{
+  "_comment": "Copy to config.json and populate via API discovery on first run. See SKILL.md → 'First-run setup'.",
+  "subdomain": "yourcompany",
+  "base_url": "https://yourcompany.syncromsp.com",
+  "user_id": 0,
+  "labor_products": {
+    "default": { "id": 0, "name": "Labor", "rate": 100, "notes": "Standard onsite or general work" },
+    "project": { "id": 0, "name": "Project Labor", "rate": 90, "notes": "Project-scoped work, often discounted" },
+    "remote": { "id": 0, "name": "Remote Support Labor", "rate": 80, "notes": "Remote support sessions" },
+    "after_hours": { "id": 0, "name": "After Hours Labor", "rate": 145, "notes": "Outside business hours, premium rate" },
+    "rush": { "id": 0, "name": "Rush Labor", "rate": 115, "notes": "Expedited / emergency response" },
+    "contract": { "id": 0, "name": "Contract Labor", "rate": 0, "notes": "Covered under a service contract" },
+    "trip": { "id": 0, "name": "Trip Charge", "rate": 15, "notes": "Travel / dispatch fee" }
+  },
+  "appointment_types": {
+    "office": 0,
+    "phone": 0,
+    "remote": 0,
+    "onsite": 0
+  },
+  "discovered_at": null
+}

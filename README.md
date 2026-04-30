@@ -22,6 +22,24 @@ A fully-featured [Model Context Protocol](https://modelcontextprotocol.io) serve
 | [**Docker + Claude.ai**](#docker-deployment-remote-mcp) | Teams, remote access, Claude.ai web | Yes (Watchtower) |
 | [**From Source**](#from-source) | Development and customization | Manual |
 
+### Bundled Skill
+
+This repo also ships a [Claude Skill](skills/syncromsp/) that gives Claude operating context for the MCP — workflows, API quirks (e.g. `line_items` ignored on `*_create`), the two-step labor logging pattern, ticket status transitions, and a hyperlink rule that renders every Syncro record as a clickable link. It's company-agnostic; user-specific values are discovered at runtime via API calls and cached locally.
+
+A zipped, version-tagged copy is published to every release as `syncromsp-skill.zip`. Latest:
+
+```
+https://github.com/advenimus/syncromsp-mcp/releases/latest/download/syncromsp-skill.zip
+```
+
+**Claude Code:**
+
+```bash
+cp -r skills/syncromsp ~/.claude/skills/syncromsp
+```
+
+**Claude Desktop / claude.ai:** download `syncromsp-skill.zip` from [Releases](https://github.com/advenimus/syncromsp-mcp/releases) and upload via *Settings → Capabilities → Skills* (paid plan, preview feature). It then syncs to Claude Desktop automatically. Full instructions in [skills/syncromsp/README.md](skills/syncromsp/README.md).
+
 ---
 
 ## Prerequisites
