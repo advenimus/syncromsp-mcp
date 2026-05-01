@@ -64,6 +64,8 @@ Rules:
 
 `tickets_comment` requires a `subject` field — omitting it returns 422.
 
+Comment `body` and `subject` are rendered as **plain text** by Syncro — markdown is not parsed. See the "Plain text only in Syncro fields" rule in `SKILL.md`. Use ALL CAPS for emphasis, hyphen bullets for lists, bare URLs (no `[text](url)`), and blank lines for paragraph breaks. Never paste markdown directly from a doc or chat — translate it first.
+
 **Workflow for any non-trivial outbound comment:**
 
 1. Draft the comment.

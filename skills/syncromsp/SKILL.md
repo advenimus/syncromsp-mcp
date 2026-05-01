@@ -1,7 +1,7 @@
 ---
 name: syncromsp
 description: Use when working with SyncroMSP (PSA/RMM platform for IT MSPs) — tickets, customers, invoices, estimates, appointments, line items, labor/time tracking, RMM alerts, contracts, products, leads, payments. Establishes correct procedures, API quirks, hyperlink display rules, and workflow patterns for managing an IT MSP business in Syncro.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # SyncroMSP
@@ -54,6 +54,23 @@ When referencing any SyncroMSP record in chat output, ALWAYS render it as a clic
 | Purchase Order | `{base_url}/purchase_orders/{id}` |
 
 Format: `[Ticket #1234](https://...)` — never display a bare ID.
+
+**This rule applies to chat output to the user only.** Do NOT use markdown links — or any other markdown — inside text you send to Syncro itself (see next rule).
+
+## Plain text only in Syncro fields (always)
+
+Every text field that Syncro stores and re-renders — ticket comment bodies, ticket comment subjects, ticket subjects/bodies, invoice/estimate notes, appointment notes, customer notes, wiki/worksheet bodies, etc. — is rendered as **literal text**. Markdown is NOT parsed. `**bold**` shows up as `**bold**`, `[link](url)` shows up as `[link](url)`, backticks show up as backticks.
+
+When generating any string that will be sent to a Syncro `body`, `notes`, `subject`, or comment field:
+
+- **No** `**bold**`, `*italic*`, `__underline__`, `~~strike~~`
+- **No** `# Headers` — use ALL CAPS or a trailing colon (`Search engine optimization:`) for emphasis
+- **No** `[text](url)` — paste the bare URL on its own line
+- **No** backticks for inline code or fences
+- **No** `>` blockquotes
+- **Allowed**: plain hyphen bullets (`- item`), numbered lists (`1. item`), blank lines for paragraph breaks, ALL CAPS section headings — these all render as themselves and remain readable
+
+This applies even when the source material the user gave you is markdown — translate it to plain text before posting. The hyperlink rule above is for chat output to the user; do not carry it into Syncro field content.
 
 ## Tool naming
 
