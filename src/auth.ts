@@ -90,9 +90,17 @@ function escHtml(s: unknown): string {
  * - Cache-Control: no-store keeps the form/error out of disk cache.
  */
 function applySecurityHeaders(res: Response): void {
+  // NOTE: deliberately no `form-action` directive. CSP form-action applies to
+  // redirects from form submissions, which would block the legitimate OAuth
+  // flow: form posts to /authorize/callback, server returns 302 to the
+  // registered redirect_uri (e.g. https://claude.ai/api/mcp/auth_callback or
+  // http://localhost:<port>/cb), and a `form-action 'self'` rule would silently
+  // block that cross-origin redirect. The OAuth SDK validates the redirect_uri
+  // against registered values, and the consent UI displays it for the user
+  // to verify, so form-action would be redundant defense-in-depth at best.
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'none'; style-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+    "default-src 'none'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
   );
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");

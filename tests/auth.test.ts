@@ -191,9 +191,20 @@ describe("McpOAuthProvider — security headers on authorize page", () => {
     expect(csp).toContain("default-src 'none'");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("base-uri 'none'");
-    expect(csp).toContain("form-action 'self'");
     // Scripts are forbidden — no script-src 'unsafe-inline' permitted.
     expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+  });
+
+  it("does NOT set form-action (would block cross-origin OAuth redirects)", async () => {
+    // Regression: a `form-action 'self'` directive blocks the browser from
+    // following the 302 redirect from /authorize/callback to the registered
+    // redirect_uri (e.g. https://claude.ai/...) because form-action applies
+    // to redirects too, not just the form's initial action target.
+    const mock = createMockResponse();
+    await provider.authorize(makeClient(), makeAuthParams(), mock.res);
+    const csp = mock.headers["Content-Security-Policy"];
+    expect(csp).toBeDefined();
+    expect(csp).not.toMatch(/form-action/);
   });
 
   it("sets X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Cache-Control", async () => {
