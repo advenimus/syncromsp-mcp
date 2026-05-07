@@ -29,7 +29,7 @@ export function createServer(
   toolMode: ToolMode = "navigation"
 ): Server {
   const server = new Server(
-    { name: "syncromsp-mcp", version: "0.1.0" },
+    { name: "syncromsp-mcp", version: "0.1.1" },
     { capabilities: { tools: {} } }
   );
 
