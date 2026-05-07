@@ -1,22 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { getPackageVersion } from "./version.js";
 
 interface ReleaseInfo {
   tag_name: string;
   html_url: string;
-}
-
-function getCurrentVersion(): string {
-  try {
-    // Try reading from package.json relative to this file
-    const dir = dirname(fileURLToPath(import.meta.url));
-    const pkgPath = join(dir, "..", "..", "package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    return pkg.version || "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
 }
 
 function compareVersions(current: string, latest: string): number {
@@ -35,7 +21,7 @@ function compareVersions(current: string, latest: string): number {
  * on network errors, timeouts, etc.
  */
 export function checkForUpdates(): void {
-  const currentVersion = getCurrentVersion();
+  const currentVersion = getPackageVersion();
   if (currentVersion === "0.0.0") return;
 
   const controller = new AbortController();

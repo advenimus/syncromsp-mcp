@@ -1,8 +1,11 @@
 services:
   syncro-mcp:
-    # Pinned to a specific version for supply-chain integrity. Update deliberately.
-    # Do NOT use :latest in production — a compromised release would auto-deploy.
-    image: ghcr.io/advenimus/syncromsp-mcp:0.1.1
+    # Defaults to :latest so Watchtower (or equivalent) can auto-update the
+    # running container as new releases are published. The release workflow
+    # publishes both :v<version> and :latest pointing at the same digest, so
+    # operators who want stricter supply-chain control can pin to a specific
+    # tag (e.g. :v1.6.1) and update deliberately.
+    image: ghcr.io/advenimus/syncromsp-mcp:latest
     # To build locally instead: comment out 'image' above and uncomment:
     # build: .
     container_name: syncromsp-mcp

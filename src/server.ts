@@ -6,6 +6,7 @@ import {
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { SyncroApiClient, SyncroApiError } from "./api-client.js";
 import { loadDomain } from "./domains/index.js";
+import { getPackageVersion } from "./utils/version.js";
 import {
   getSession,
   navigateTo,
@@ -29,7 +30,7 @@ export function createServer(
   toolMode: ToolMode = "navigation"
 ): Server {
   const server = new Server(
-    { name: "syncromsp-mcp", version: "0.1.1" },
+    { name: "syncromsp-mcp", version: getPackageVersion() },
     { capabilities: { tools: {} } }
   );
 
