@@ -9,6 +9,10 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import {
+  InvalidTokenError,
+  InvalidGrantError,
+} from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { Response } from "express";
 
 interface CodeData {
@@ -342,7 +346,7 @@ export class McpOAuthProvider implements OAuthServerProvider {
   ): Promise<string> {
     const codeData = this.codes.get(authorizationCode);
     if (!codeData) {
-      throw new Error("Invalid authorization code");
+      throw new InvalidGrantError("Invalid authorization code");
     }
     return codeData.params.codeChallenge;
   }
@@ -354,7 +358,7 @@ export class McpOAuthProvider implements OAuthServerProvider {
   ): Promise<OAuthTokens> {
     const codeData = this.codes.get(authorizationCode);
     if (!codeData) {
-      throw new Error("Invalid authorization code");
+      throw new InvalidGrantError("Invalid authorization code");
     }
 
     // Burn the code on the FIRST use attempt regardless of outcome.
@@ -364,12 +368,12 @@ export class McpOAuthProvider implements OAuthServerProvider {
     this.codes.delete(authorizationCode);
 
     if (codeData.client.client_id !== client.client_id) {
-      throw new Error("Invalid authorization code");
+      throw new InvalidGrantError("Invalid authorization code");
     }
 
     // Auth codes expire after 10 minutes
     if (Date.now() - codeData.createdAt > CODE_TTL_MS) {
-      throw new Error("Invalid authorization code");
+      throw new InvalidGrantError("Invalid authorization code");
     }
 
     const accessToken = randomUUID();
@@ -418,7 +422,7 @@ export class McpOAuthProvider implements OAuthServerProvider {
       tokenData.expiresAt < Date.now() ||
       tokenData.clientId !== client.client_id
     ) {
-      throw new Error("Invalid or expired refresh token");
+      throw new InvalidGrantError("Invalid or expired refresh token");
     }
 
     // Refresh token rotation: invalidate the old refresh token and mint a
@@ -463,7 +467,7 @@ export class McpOAuthProvider implements OAuthServerProvider {
       tokenData.type !== "access" ||
       tokenData.expiresAt < Date.now()
     ) {
-      throw new Error("Invalid or expired token");
+      throw new InvalidTokenError("Invalid or expired token");
     }
     return {
       token,

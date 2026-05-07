@@ -5,6 +5,10 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/provider.js";
 import { McpOAuthProvider } from "../src/auth.js";
+import {
+  InvalidTokenError,
+  InvalidGrantError,
+} from "@modelcontextprotocol/sdk/server/auth/errors.js";
 
 // 64 hex chars (32 bytes) — 32 unique-ish chars, no weak substrings.
 const STRONG_SECRET =
@@ -368,6 +372,60 @@ describe("McpOAuthProvider — auth code single-use on client_id mismatch", () =
     await expect(
       provider.exchangeAuthorizationCode(issuingClient, code)
     ).rejects.toThrow(/invalid authorization code/i);
+  });
+});
+
+describe("McpOAuthProvider — SDK OAuth error contract", () => {
+  // The MCP SDK's bearerAuth middleware returns 401 only when verifyAccessToken
+  // throws an InvalidTokenError; the token handler returns 400 invalid_grant only
+  // when the provider throws an InvalidGrantError. Plain Error throws fall through
+  // to a 500. These tests lock in the correct error classes so that contract
+  // can't silently regress.
+
+  let provider: McpOAuthProvider;
+
+  beforeEach(() => {
+    provider = new McpOAuthProvider(STRONG_SECRET);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it("verifyAccessToken throws InvalidTokenError on unknown token", async () => {
+    await expect(
+      provider.verifyAccessToken("not-a-real-token")
+    ).rejects.toBeInstanceOf(InvalidTokenError);
+  });
+
+  it("exchangeRefreshToken throws InvalidGrantError on unknown token", async () => {
+    const client: OAuthClientInformationFull = {
+      client_id: "c1",
+      redirect_uris: ["http://localhost:9999/cb"],
+    };
+    await expect(
+      provider.exchangeRefreshToken(client, "not-a-real-refresh")
+    ).rejects.toBeInstanceOf(InvalidGrantError);
+  });
+
+  it("exchangeAuthorizationCode throws InvalidGrantError on unknown code", async () => {
+    const client: OAuthClientInformationFull = {
+      client_id: "c1",
+      redirect_uris: ["http://localhost:9999/cb"],
+    };
+    await expect(
+      provider.exchangeAuthorizationCode(client, "not-a-real-code")
+    ).rejects.toBeInstanceOf(InvalidGrantError);
+  });
+
+  it("challengeForAuthorizationCode throws InvalidGrantError on unknown code", async () => {
+    const client: OAuthClientInformationFull = {
+      client_id: "c1",
+      redirect_uris: ["http://localhost:9999/cb"],
+    };
+    await expect(
+      provider.challengeForAuthorizationCode(client, "not-a-real-code")
+    ).rejects.toBeInstanceOf(InvalidGrantError);
   });
 });
 
