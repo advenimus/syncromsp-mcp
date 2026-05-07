@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "syncromsp-mcp",
   "display_name": "SyncroMSP MCP Server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server for SyncroMSP — tickets, customers, assets, invoices, and 30+ resource types for AI assistants",
   "long_description": "A fully-featured Model Context Protocol server for the SyncroMSP IT/MSP platform. Provides AI assistants with access to 170 API endpoints across 15 domains using a lazy-loaded navigation pattern that keeps token usage efficient. Supports full CRUD for tickets, customers, invoices, estimates, appointments, products, RMM alerts, and more.",
   "author": {
