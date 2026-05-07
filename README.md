@@ -126,9 +126,10 @@ SYNCRO_SUBDOMAIN=your-subdomain
 # Must be HTTPS for production (put behind Traefik, Caddy, nginx, etc.)
 MCP_BASE_URL=https://mcp.yourcompany.com
 
-# Required: Access key that users must enter to authorize connections
-# Generate one with: openssl rand -hex 32
-MCP_AUTH_SECRET=your-strong-secret-here
+# Required: Access key that users must enter to authorize connections.
+# Minimum 32 characters; the server refuses to start on weak/default values.
+# Generate with: openssl rand -hex 32
+MCP_AUTH_SECRET=
 ```
 
 ### Step 2: Deploy
@@ -162,9 +163,13 @@ Client connects → 401 Unauthorized
 ```
 
 - Tokens are validated on every MCP request via bearer auth
-- Access tokens expire after 24 hours (refresh tokens last 30 days)
+- Access tokens expire after 24 hours; refresh tokens rotate on every use and last 30 days
+- Access tokens and refresh tokens carry a type discriminator — a refresh token cannot be used as a bearer, and an access token cannot be exchanged at the token endpoint
 - Timing-safe secret comparison prevents side-channel attacks
-- Server **refuses to start** if `MCP_AUTH_SECRET` is not set
+- Server **refuses to start** if `MCP_AUTH_SECRET` is missing, shorter than 32 characters, or matches a known weak default (`change-me`, `password`, `secret`, etc.)
+- Consent page displays the registered `redirect_uri` so users can verify the destination before authorizing (anti-phishing)
+
+For the full threat model, defense layers, and operator responsibilities, see [SECURITY.md](SECURITY.md).
 
 ### Example: Docker with Traefik
 
@@ -181,6 +186,14 @@ services:
       - MCP_PORT=8080
       - MCP_BASE_URL=https://mcp.yourcompany.com
       - MCP_AUTH_SECRET=${MCP_AUTH_SECRET}
+    # Container hardening — recommended for any public-facing deployment
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=10m,mode=1777
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.mcp.rule=Host(`mcp.yourcompany.com`)"
@@ -205,6 +218,14 @@ services:
       - MCP_AUTH_SECRET=${MCP_AUTH_SECRET}
     expose:
       - "8080"
+    # Container hardening — recommended for any public-facing deployment
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=10m,mode=1777
 
   caddy:
     image: caddy:2
@@ -229,13 +250,13 @@ mcp.yourcompany.com {
 
 ### Disabling Auth (Not Recommended)
 
-For testing on private networks only:
+For testing on private networks only. The server **refuses to start** with `MCP_AUTH=false` unless you also set `MCP_I_UNDERSTAND_INSECURE=true` as an explicit foot-gun guard:
 
 ```bash
-MCP_AUTH=false docker compose up -d
+MCP_AUTH=false MCP_I_UNDERSTAND_INSECURE=true docker compose up -d
 ```
 
-**Warning:** Without auth, anyone who can reach the URL gets full access to your Syncro account.
+**Warning:** Without auth, anyone who can reach the URL gets full access to your Syncro account. Never disable auth on a publicly-reachable deployment, even briefly.
 
 ---
 
@@ -248,8 +269,9 @@ MCP_AUTH=false docker compose up -d
 | `MCP_TRANSPORT` | No | `stdio` | `stdio` (local) or `http` (Docker/remote) |
 | `MCP_PORT` | No | `8080` | HTTP listen port |
 | `MCP_BASE_URL` | For Docker | — | Public HTTPS URL (e.g., `https://mcp.yourcompany.com`) |
-| `MCP_AUTH` | No | `true` | `true` or `false` to disable OAuth |
-| `MCP_AUTH_SECRET` | For Docker | — | Access key users enter to authorize (min 8 chars) |
+| `MCP_AUTH` | No | `true` | `true` or `false` to disable OAuth (see foot-gun guard below) |
+| `MCP_AUTH_SECRET` | For Docker | — | Access key users enter to authorize. Minimum 32 chars; weak/default values rejected at startup. |
+| `MCP_I_UNDERSTAND_INSECURE` | If `MCP_AUTH=false` | — | Must be `true` to start the server with auth disabled. Foot-gun guard. |
 | `MCP_TOOL_MODE` | No | `flat` | `flat` (all tools) or `navigation` (lazy domains) |
 
 ---
@@ -290,18 +312,36 @@ The server checks for updates on startup and logs a warning if a newer version i
 
 ### Auto-Update with Watchtower
 
-Add to your `docker-compose.yml`:
+Recommended: run Watchtower in **label-enable** mode so it only auto-updates the containers that opt in. This is much safer than letting it auto-update every container on the host.
+
+Watchtower stack (`/root/docker/watchtower/docker-compose.yml`):
 
 ```yaml
 services:
   watchtower:
-    image: containrrr/watchtower
+    image: containrrr/watchtower:1.7.1
+    container_name: watchtower
+    restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - WATCHTOWER_POLL_INTERVAL=86400  # Check every 24 hours
+      - WATCHTOWER_LABEL_ENABLE=true       # only watch opted-in containers
+      - WATCHTOWER_POLL_INTERVAL=300       # check every 5 minutes
       - WATCHTOWER_CLEANUP=true
+      # On hosts running modern Docker (29.x with MinAPI 1.40), Watchtower's
+      # bundled SDK can default to an older API version. Pin to 1.40 to avoid
+      # `client version 1.25 is too old` errors at runtime.
+      - DOCKER_API_VERSION=1.40
 ```
+
+Then opt the syncromsp-mcp service in via a label in its compose:
+
+```yaml
+labels:
+  - "com.centurylinklabs.watchtower.enable=true"
+```
+
+Bring both up: `docker compose up -d` in each directory. New releases on `:latest` will be pulled and the container recreated within 5 minutes of publish.
 
 ---
 
