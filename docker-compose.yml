@@ -1,12 +1,19 @@
 services:
   syncro-mcp:
-    image: ghcr.io/advenimus/syncromsp-mcp:latest
+    # Pinned to a specific version for supply-chain integrity. Update deliberately.
+    # Do NOT use :latest in production — a compromised release would auto-deploy.
+    image: ghcr.io/advenimus/syncromsp-mcp:0.1.1
     # To build locally instead: comment out 'image' above and uncomment:
     # build: .
     container_name: syncromsp-mcp
     restart: unless-stopped
+    # Bound to loopback only. The reverse proxy (Caddy/Traefik) on the host
+    # forwards :443 → 127.0.0.1:8080. The container is NOT directly reachable
+    # from the internet. If your reverse proxy is on a different host or
+    # network, change the bind address accordingly AFTER reading the security
+    # implications in SECURITY.md.
     ports:
-      - "${MCP_PORT:-8080}:8080"
+      - "127.0.0.1:${MCP_PORT:-8080}:8080"
     environment:
       - SYNCRO_API_KEY=${SYNCRO_API_KEY}
       - SYNCRO_SUBDOMAIN=${SYNCRO_SUBDOMAIN}
@@ -16,3 +23,16 @@ services:
       - MCP_AUTH=${MCP_AUTH:-true}
       - MCP_AUTH_SECRET=${MCP_AUTH_SECRET}
       - MCP_TOOL_MODE=${MCP_TOOL_MODE:-flat}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=10m,mode=1777
+    # Optional but recommended if your platform supports it:
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 512M
+    #       cpus: "0.5"
