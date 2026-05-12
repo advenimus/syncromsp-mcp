@@ -2,7 +2,11 @@
   "mcpServers": {
     "syncromsp": {
       "command": "npx",
-      "args": ["-y", "syncromsp-mcp@latest"]
+      "args": ["-y", "syncromsp-mcp@latest"],
+      "env": {
+        "SYNCRO_API_KEY": "${user_config.api_key}",
+        "SYNCRO_SUBDOMAIN": "${user_config.subdomain}"
+      }
     }
   }
 }

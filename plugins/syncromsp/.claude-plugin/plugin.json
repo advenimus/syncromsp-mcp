@@ -7,5 +7,20 @@
   },
   "homepage": "https://github.com/advenimus/syncromsp-mcp",
   "repository": "https://github.com/advenimus/syncromsp-mcp",
-  "license": "MIT"
+  "license": "MIT",
+  "userConfig": {
+    "subdomain": {
+      "type": "string",
+      "title": "Syncro subdomain",
+      "description": "The part before .syncromsp.com in your Syncro URL (e.g. 'mycompany' from mycompany.syncromsp.com). For legacy .shield.syncromsp.com accounts, still enter just the subdomain.",
+      "required": true
+    },
+    "api_key": {
+      "type": "string",
+      "title": "Syncro API key",
+      "description": "Generate at Admin → API Tokens in your Syncro account. Use the Custom Permissions tab to scope the token to the resources you need. The token is stored in your system keychain, not in plain text.",
+      "sensitive": true,
+      "required": true
+    }
+  }
 }

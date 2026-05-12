@@ -27,14 +27,16 @@ A fully-featured [Model Context Protocol](https://modelcontextprotocol.io) serve
 
 This repo also ships a [Claude Skill](plugins/syncromsp/skills/syncromsp/) that gives Claude operating context for the MCP — workflows, API quirks (e.g. `line_items` ignored on `*_create`), the two-step labor logging pattern, ticket status transitions, ticket comment subject conventions, and a hyperlink rule that renders every Syncro record as a clickable link. It's company-agnostic; user-specific values are discovered at runtime via API calls and cached locally.
 
-**Recommended — Claude Code plugin (auto-updating, bundles skill + MCP):**
+**Recommended — Claude Code plugin (auto-updating, bundles skill + MCP, prompts for credentials on install):**
 
 ```
 /plugin marketplace add advenimus/syncromsp-mcp
 /plugin install syncromsp@syncromsp
 ```
 
-Claude Code clones the marketplace, copies the plugin into `~/.claude/plugins/cache/`, and auto-starts the bundled MCP server. New commits to `main` propagate to installed users on the next marketplace refresh — no manual re-install needed.
+On enable, Claude Code prompts for your Syncro subdomain and API key. The subdomain is stored in `settings.json`; the API key goes to your system keychain. Both are passed to the bundled MCP server as `SYNCRO_SUBDOMAIN` and `SYNCRO_API_KEY` automatically — no shell exports or manual `claude mcp add` needed.
+
+New commits to `main` propagate to installed users on the next marketplace refresh — no manual re-install needed.
 
 **Claude Desktop / claude.ai (no public plugin marketplace yet):** download `syncromsp-skill.zip` from [Releases](https://github.com/advenimus/syncromsp-mcp/releases) and upload via *Settings → Capabilities → Skills* (paid plan, preview feature). It syncs across that account automatically. For Team/Enterprise plans, an org admin can upload via *Organization settings* and every member gets auto-updates when the admin re-uploads a revised zip. Full instructions in [plugins/syncromsp/skills/syncromsp/README.md](plugins/syncromsp/skills/syncromsp/README.md).
 
