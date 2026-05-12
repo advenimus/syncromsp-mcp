@@ -1,0 +1,11 @@
+{
+  "name": "syncromsp",
+  "description": "SyncroMSP PSA/RMM integration — bundles the MCP server (via npm) and the SyncroMSP skill (workflows, API quirks, ticket comment conventions, hyperlink rules).",
+  "author": {
+    "name": "Advenimus",
+    "url": "https://github.com/advenimus"
+  },
+  "homepage": "https://github.com/advenimus/syncromsp-mcp",
+  "repository": "https://github.com/advenimus/syncromsp-mcp",
+  "license": "MIT"
+}

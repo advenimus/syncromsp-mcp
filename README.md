@@ -17,28 +17,32 @@ A fully-featured [Model Context Protocol](https://modelcontextprotocol.io) serve
 
 | Method | Best For | Auto-Updates |
 |--------|----------|-------------|
-| [**Claude Code**](#claude-code) | Developers using Claude Code CLI | Yes (npx) |
+| [**Claude Code Plugin**](#bundled-skill) | One-command install of MCP + Skill in Claude Code | **Yes (marketplace)** |
+| [**Claude Code (MCP only)**](#claude-code) | Developers wiring up the MCP without the bundled skill | Yes (npx) |
 | [**Claude Desktop**](#claude-desktop) | Local desktop app users | Yes (npx) |
 | [**Docker + Claude.ai**](#docker-deployment-remote-mcp) | Teams, remote access, Claude.ai web | Yes (Watchtower) |
 | [**From Source**](#from-source) | Development and customization | Manual |
 
 ### Bundled Skill
 
-This repo also ships a [Claude Skill](skills/syncromsp/) that gives Claude operating context for the MCP — workflows, API quirks (e.g. `line_items` ignored on `*_create`), the two-step labor logging pattern, ticket status transitions, and a hyperlink rule that renders every Syncro record as a clickable link. It's company-agnostic; user-specific values are discovered at runtime via API calls and cached locally.
+This repo also ships a [Claude Skill](plugins/syncromsp/skills/syncromsp/) that gives Claude operating context for the MCP — workflows, API quirks (e.g. `line_items` ignored on `*_create`), the two-step labor logging pattern, ticket status transitions, ticket comment subject conventions, and a hyperlink rule that renders every Syncro record as a clickable link. It's company-agnostic; user-specific values are discovered at runtime via API calls and cached locally.
 
-A zipped, version-tagged copy is published to every release as `syncromsp-skill.zip`. Latest:
+**Recommended — Claude Code plugin (auto-updating, bundles skill + MCP):**
+
+```
+/plugin marketplace add advenimus/syncromsp-mcp
+/plugin install syncromsp@syncromsp
+```
+
+Claude Code clones the marketplace, copies the plugin into `~/.claude/plugins/cache/`, and auto-starts the bundled MCP server. New commits to `main` propagate to installed users on the next marketplace refresh — no manual re-install needed.
+
+**Claude Desktop / claude.ai (no public plugin marketplace yet):** download `syncromsp-skill.zip` from [Releases](https://github.com/advenimus/syncromsp-mcp/releases) and upload via *Settings → Capabilities → Skills* (paid plan, preview feature). It syncs across that account automatically. For Team/Enterprise plans, an org admin can upload via *Organization settings* and every member gets auto-updates when the admin re-uploads a revised zip. Full instructions in [plugins/syncromsp/skills/syncromsp/README.md](plugins/syncromsp/skills/syncromsp/README.md).
+
+The release zip is always published at:
 
 ```
 https://github.com/advenimus/syncromsp-mcp/releases/latest/download/syncromsp-skill.zip
 ```
-
-**Claude Code:**
-
-```bash
-cp -r skills/syncromsp ~/.claude/skills/syncromsp
-```
-
-**Claude Desktop / claude.ai:** download `syncromsp-skill.zip` from [Releases](https://github.com/advenimus/syncromsp-mcp/releases) and upload via *Settings → Capabilities → Skills* (paid plan, preview feature). It then syncs to Claude Desktop automatically. Full instructions in [skills/syncromsp/README.md](skills/syncromsp/README.md).
 
 ---
 

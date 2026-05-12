@@ -21,13 +21,13 @@ Required mindset:
 
 ### Initial comment at creation
 
-If the customer should receive a confirmation, include an initial public comment via `comments_attributes`:
+If the customer should receive a confirmation, include an initial public comment via `comments_attributes`. Use a standard `subject` value (see "Comment subject values" below):
 
 ```json
 {
   "comments_attributes": [{
     "body": "Hi {{name}}, we received your request and will follow up shortly.",
-    "subject": "Ticket Received",
+    "subject": "Contacted",
     "hidden": false,
     "do_not_email": true
   }]
@@ -65,6 +65,25 @@ Rules:
 `tickets_comment` requires a `subject` field — omitting it returns 422.
 
 Comment `body` and `subject` are rendered as **plain text** by Syncro — markdown is not parsed. See the "Plain text only in Syncro fields" rule in `SKILL.md`. Use ALL CAPS for emphasis, hyphen bullets for lists, bare URLs (no `[text](url)`), and blank lines for paragraph breaks. Never paste markdown directly from a doc or chat — translate it first.
+
+### Comment subject values
+
+Syncro's UI presents a fixed dropdown of standard subjects when a tech adds a comment. Always pick from this list when posting via `tickets_comment` or `comments_attributes` — using arbitrary subjects fragments reporting and breaks the visual scanability of the ticket thread. Only use a custom subject if the user explicitly asks for one.
+
+| Subject | When to use |
+|---------|-------------|
+| `Issue` | Reporting or restating the problem (e.g. logging a customer-reported symptom or initial triage notes) |
+| `Diagnosis` | Root-cause findings after investigation |
+| `Contacted` | Reached out to the customer (call, email, portal message) — including the initial "we received your request" confirmation |
+| `Approval` | Asking for or recording customer approval (quote sign-off, change authorization) |
+| `Parts Order` | Parts have been ordered for the ticket |
+| `Parts Arrival` | Ordered parts have arrived |
+| `Update` | General progress note that doesn't fit another category — **the Syncro default**. Use when in doubt. |
+| `Upgrade` | Performing or recommending an upgrade (firmware, software, hardware) |
+| `Completed` | Work for this comment's scope is finished (often paired with status `Resolved`) |
+| `Other` | Genuinely doesn't fit any of the above — prefer `Update` over `Other` unless the user specifies |
+
+Subjects are case-sensitive in the Syncro UI dropdown — match the casing exactly as listed.
 
 **Workflow for any non-trivial outbound comment:**
 

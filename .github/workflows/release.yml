@@ -113,14 +113,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Sync skill version with release tag
+        # Used for the standalone skill zip (Claude Desktop / claude.ai upload path).
+        # The Claude Code plugin path is git-SHA-versioned by the marketplace and
+        # does not need a version bump here.
         run: |
-          sed -i "s/^version: .*/version: ${{ needs.release.outputs.version }}/" skills/syncromsp/SKILL.md
-          grep '^version:' skills/syncromsp/SKILL.md
+          sed -i "s/^version: .*/version: ${{ needs.release.outputs.version }}/" plugins/syncromsp/skills/syncromsp/SKILL.md
+          grep '^version:' plugins/syncromsp/skills/syncromsp/SKILL.md
       - name: Package skill as zip
         run: |
-          cd skills
-          zip -r "../syncromsp-skill.zip" syncromsp -x "syncromsp/config.json"
-          unzip -l ../syncromsp-skill.zip
+          cd plugins/syncromsp/skills
+          zip -r "$GITHUB_WORKSPACE/syncromsp-skill.zip" syncromsp -x "syncromsp/config.json"
+          unzip -l "$GITHUB_WORKSPACE/syncromsp-skill.zip"
       - name: Upload skill zip to Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

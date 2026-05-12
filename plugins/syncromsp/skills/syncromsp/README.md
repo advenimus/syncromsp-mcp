@@ -21,21 +21,30 @@ This skill is **company-agnostic**. User-specific values (your subdomain, techni
 
 ## Install
 
-### Claude Code (CLI)
+### Claude Code (CLI) — recommended: plugin marketplace
 
-Copy this folder into your Claude Code skills directory:
+The skill ships as part of the `syncromsp` Claude Code plugin (which also bundles the MCP server). Install via the marketplace and you get auto-updates whenever this repo's `main` advances:
 
-```bash
-cp -r skills/syncromsp ~/.claude/skills/syncromsp
+```
+/plugin marketplace add advenimus/syncromsp-mcp
+/plugin install syncromsp@syncromsp
 ```
 
-The skill becomes available in any Claude Code session. The first time it's invoked, Claude will discover and cache your MSP-specific values in `~/.claude/skills/syncromsp/config.json`.
+The first time the skill is invoked, Claude will discover and cache your MSP-specific values in a `config.json`. The plugin's skill files live under `~/.claude/plugins/cache/` and are rebuilt on update — don't edit them in place; use `learnings/` (see below) for additions you want preserved.
 
-To install per-project instead of globally:
+#### Legacy manual copy (no plugin)
+
+If you'd rather skip the plugin and just drop the skill in directly:
+
+```bash
+cp -r plugins/syncromsp/skills/syncromsp ~/.claude/skills/syncromsp
+```
+
+Per-project install:
 
 ```bash
 mkdir -p .claude/skills
-cp -r skills/syncromsp .claude/skills/syncromsp
+cp -r plugins/syncromsp/skills/syncromsp .claude/skills/syncromsp
 ```
 
 ### Claude Desktop / claude.ai
@@ -63,7 +72,7 @@ Steps:
 If you want to ship local edits without cutting a release:
 
 ```bash
-cd skills && zip -r ../syncromsp-skill.zip syncromsp -x "syncromsp/config.json"
+cd plugins/syncromsp/skills && zip -r ../../../syncromsp-skill.zip syncromsp -x "syncromsp/config.json"
 ```
 
 Then upload the resulting `syncromsp-skill.zip` via the same Skills page.
@@ -82,14 +91,18 @@ If you customize the skill for your business, do so in `learnings/` first — do
 
 - Specific user IDs, product IDs, or subdomains — those go in the runtime-generated `config.json`
 - Company-specific procedures, branding, or client lists — those belong in your CLAUDE.md or project memory
-- Tool schemas — the [SyncroMSP MCP server](../..) provides them. This skill provides the judgment layer on top.
+- Tool schemas — the [SyncroMSP MCP server](../../../..) provides them. This skill provides the judgment layer on top.
 
 ## Updating
 
-When a new version of this skill ships in the repo, re-copy it into `~/.claude/skills/syncromsp/` (preserve your local `config.json` and any `learnings/` files):
+**Claude Code plugin users:** updates are automatic — Claude Code refreshes the marketplace on startup and re-installs the plugin when `main` advances. Nothing to do.
+
+**Manual-copy users:** re-copy this folder into `~/.claude/skills/syncromsp/` (preserve your local `config.json` and any `learnings/` files):
 
 ```bash
 # From the syncromsp-mcp repo root
 rsync -a --exclude config.json --exclude 'learnings/*.md' \
-  skills/syncromsp/ ~/.claude/skills/syncromsp/
+  plugins/syncromsp/skills/syncromsp/ ~/.claude/skills/syncromsp/
 ```
+
+**Claude Desktop / claude.ai users:** download the latest `syncromsp-skill.zip` from [Releases](https://github.com/advenimus/syncromsp-mcp/releases/latest) and re-upload via *Settings → Capabilities → Skills*. Org-provisioned skills propagate updates to members automatically — admin re-uploads, everyone gets it.

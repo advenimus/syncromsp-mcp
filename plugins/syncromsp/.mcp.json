@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "syncromsp": {
+      "command": "npx",
+      "args": ["-y", "syncromsp-mcp@latest"]
+    }
+  }
+}

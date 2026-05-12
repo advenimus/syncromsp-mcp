@@ -1,0 +1,23 @@
+{
+  "name": "syncromsp",
+  "owner": {
+    "name": "Advenimus",
+    "url": "https://github.com/advenimus"
+  },
+  "metadata": {
+    "description": "Claude Code marketplace for the SyncroMSP integration — bundles the MCP server and the SyncroMSP skill in a single, auto-updating plugin.",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "syncromsp",
+      "source": "syncromsp",
+      "description": "SyncroMSP PSA/RMM integration. Full-coverage MCP server (170+ tools across tickets, customers, billing, appointments, RMM, products, contracts) bundled with the SyncroMSP skill — workflows, API quirks, hyperlink rules, ticket comment subject conventions, and the procedures an IT MSP needs to run their business in Syncro.",
+      "category": "integration",
+      "tags": ["msp", "psa", "rmm", "syncromsp", "tickets", "billing", "helpdesk"],
+      "homepage": "https://github.com/advenimus/syncromsp-mcp",
+      "repository": "https://github.com/advenimus/syncromsp-mcp",
+      "license": "MIT"
+    }
+  ]
+}
