@@ -4,7 +4,7 @@ A fully-featured [Model Context Protocol](https://modelcontextprotocol.io) serve
 
 ## Features
 
-- **170 API endpoints** across 15 domains
+- **180+ API endpoints** across 16 domains
 - **Full CRUD** for tickets, customers, invoices, estimates, appointments, contracts, products, and more
 - **Ticket comments** — email replies, public notes, and private/internal notes
 - **Line items** — add products from catalog or manual entries to tickets, invoices, estimates, schedules
@@ -286,9 +286,9 @@ MCP_AUTH=false MCP_I_UNDERSTAND_INSECURE=true docker compose up -d
 
 | Domain | Description | Key Operations |
 |--------|-------------|---------------|
-| **tickets** | Service tickets | CRUD, comments (email/public/private), line items, timers, attachments |
+| **tickets** | Service tickets | CRUD, comments (email/public/private), cross-ticket comment feed, line items, timers, attachments, blueprints |
 | **customers** | Customer records | CRUD, phone numbers, autocomplete |
-| **assets** | Customer assets | CRUD, patches, properties (OS, RAM, HDD, etc.) |
+| **assets** | Customer assets | CRUD, patches, installed applications, policy folder assignment, properties (OS, RAM, HDD, etc.) |
 | **contacts** | Customer contacts | CRUD |
 | **invoices** | Invoices | CRUD, line items (manual + product catalog), print, email |
 | **estimates** | Estimates/quotes | CRUD, line items, print, email, convert to invoice |
@@ -301,6 +301,7 @@ MCP_AUTH=false MCP_I_UNDERSTAND_INSECURE=true docker compose up -d
 | **scheduling** | Recurring invoices | CRUD, schedule line items |
 | **time** | Timers and time logs | List, update |
 | **admin** | Search, users, vendors, wiki, portal, settings, purchase orders, and more | Various |
+| **policies** | Policy folders (Syncro accounts only) | List, get, create, update, delete folders; assign assets via `assets_update` |
 
 ---
 

@@ -23,6 +23,8 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
             created_after: { type: "string", description: "ISO 8601 date - tickets created after this date" },
             since_updated_at: { type: "string", description: "ISO 8601 date - tickets updated after this date" },
             ticket_search_id: { type: "number", description: "Filter by saved search ID" },
+            asset_name: { type: "string", description: "Return only tickets linked (via assets) to assets whose name matches (case-insensitive partial)" },
+            asset_serial: { type: "string", description: "Return only tickets linked (via assets) to assets whose serial number matches (case-insensitive partial)" },
             page: { type: "number", description: "Page number for pagination" },
           },
         },
@@ -40,6 +42,8 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
           created_after: optionalString(args.created_after),
           since_updated_at: optionalString(args.since_updated_at),
           ticket_search_id: optionalId(args.ticket_search_id),
+          asset_name: optionalString(args.asset_name),
+          asset_serial: optionalString(args.asset_serial),
           page: optionalNumber(args.page),
         });
         const result = await client.get("/tickets", params as Record<string, string | number | boolean>);
@@ -532,6 +536,91 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
       handler: async () => {
         const result = await client.get("/tickets/settings");
         return jsonResult(result);
+      },
+    },
+    {
+      definition: {
+        name: "tickets_list_comments",
+        description: "List ticket comments across multiple tickets as a flat paginated feed (distinct from tickets_get_comments which is scoped to one ticket). Sorted by ticket_id ASC, created_at DESC. Scope via ticket_search_id, ticket_id, customer_id, contact_id, user_id, status, mine, or date filters. comment_created_after/before filter at the comment level; the other date filters operate on the parent ticket.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            ticket_search_id: { type: "number", description: "Scope to tickets matching this saved Ticket View ID" },
+            ticket_id: { type: "number", description: "Scope to a single ticket" },
+            customer_id: { type: "number", description: "Scope to tickets for this customer" },
+            contact_id: { type: "number", description: "Scope to tickets for this contact" },
+            user_id: { type: "number", description: "Scope to tickets assigned to this user" },
+            status: { type: "string", description: "Scope to tickets with this status (use 'Not Closed' to exclude resolved)" },
+            resolved_after: { type: "string", description: "ISO 8601 - ticket resolved after this date" },
+            created_after: { type: "string", description: "ISO 8601 - ticket created after this date" },
+            since_updated_at: { type: "string", description: "ISO 8601 - ticket updated after this date" },
+            mine: { type: "boolean", description: "When true, scope to tickets assigned to the authenticated user" },
+            comment_created_after: { type: "string", description: "ISO 8601 - filter comments created after this date" },
+            comment_created_before: { type: "string", description: "ISO 8601 - filter comments created before this date" },
+            comment_format: { type: "string", description: "Body format: 'plaintext' (default), 'richtext', or 'original'" },
+            page: { type: "number", description: "Page number (default 1)" },
+            per_page: { type: "number", description: "Comments per page (default 25, max 100)" },
+          },
+        },
+      },
+      handler: async (args) => {
+        const params = pickDefined({
+          ticket_search_id: optionalId(args.ticket_search_id),
+          ticket_id: optionalId(args.ticket_id),
+          customer_id: optionalId(args.customer_id),
+          contact_id: optionalId(args.contact_id),
+          user_id: optionalId(args.user_id),
+          status: optionalString(args.status),
+          resolved_after: optionalString(args.resolved_after),
+          created_after: optionalString(args.created_after),
+          since_updated_at: optionalString(args.since_updated_at),
+          mine: optionalBoolean(args.mine),
+          comment_created_after: optionalString(args.comment_created_after),
+          comment_created_before: optionalString(args.comment_created_before),
+          comment_format: optionalString(args.comment_format),
+          page: optionalNumber(args.page),
+          per_page: optionalNumber(args.per_page),
+        });
+        return jsonResult(await client.get("/ticket_comments", params as Record<string, string | number | boolean>));
+      },
+    },
+    {
+      definition: {
+        name: "tickets_blueprints_list",
+        description: "List Ticket Blueprints available for ticket creation (hidden ones are excluded). Returns id, name, role, and children_count for each blueprint.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            page: { type: "number", description: "Page number" },
+            per_page: { type: "number", description: "Items per page (default 20, max 100)" },
+          },
+        },
+      },
+      handler: async (args) => {
+        const params = pickDefined({
+          page: optionalNumber(args.page),
+          per_page: optionalNumber(args.per_page),
+        });
+        return jsonResult(await client.get("/ticket_blueprints", params as Record<string, string | number | boolean>));
+      },
+    },
+    {
+      definition: {
+        name: "tickets_blueprints_apply",
+        description: "Create tickets from a Blueprint -- spawns the parent ticket and any child tickets defined by the blueprint, all assigned to the given customer. Returns { ticket_id, child_ticket_ids }.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            id: { type: "number", description: "Blueprint ID (required)" },
+            customer_id: { type: "number", description: "Customer ID the ticket(s) will be assigned to (required)" },
+          },
+          required: ["id", "customer_id"],
+        },
+      },
+      handler: async (args) => {
+        const id = requireId(args.id);
+        const body = { customer_id: requireId(args.customer_id, "customer_id") };
+        return jsonResult(await client.post(`/ticket_blueprints/${id}/apply`, body));
       },
     },
   ];

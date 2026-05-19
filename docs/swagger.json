@@ -301,6 +301,7 @@
                       "duration" : 4,
                       "location" : "In Shop",
                       "ticket_id" : null,
+                      "appointment_type_id" : null,
                       "appointment_location_type" : null,
                       "start_at_label" : "Sun 10-20-19 06:28 PM",
                       "all_day" : null,
@@ -437,6 +438,7 @@
                     "duration" : 4,
                     "location" : "In Shop",
                     "ticket_id" : null,
+                    "appointment_type_id" : null,
                     "appointment_location_type" : null,
                     "start_at_label" : "Sun 10-20-19 06:28 PM",
                     "all_day" : null,
@@ -810,6 +812,7 @@
                     "duration" : 4,
                     "location" : "In Shop",
                     "ticket_id" : null,
+                    "appointment_type_id" : null,
                     "appointment_location_type" : null,
                     "start_at_label" : "Sun 10-20-19 06:28 PM",
                     "all_day" : null,
@@ -960,6 +963,7 @@
                     "name" : "New Name",
                     "customer_id" : 1,
                     "contact_id" : null,
+                    "policy_folder_id" : 1,
                     "created_at" : "2019-10-21T04:40:27.117Z",
                     "updated_at" : "2019-10-21T04:40:27.190Z",
                     "properties" : {
@@ -1252,6 +1256,9 @@
                       "contact_id" : {
                         "type" : [ "integer", "null" ]
                       },
+                      "policy_folder_id" : {
+                        "type" : "integer"
+                      },
                       "created_at" : {
                         "type" : "string"
                       },
@@ -1333,7 +1340,7 @@
         "security" : [ {
           "bearerAuth" : [ ]
         } ],
-        "description" : "Required permission: Assets - Edit\nSingle-Customer Users can only access own assets.\n",
+        "description" : "Required permission: Assets - Edit\nUpdating only policy_folder_id requires Assets - Policy Change. Updating policy_folder_id with other asset fields requires both Assets - Edit and Assets - Policy Change.\nSingle-Customer Users can only access own assets.\n",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
@@ -1362,6 +1369,10 @@
                   },
                   "customer_id" : {
                     "type" : "integer"
+                  },
+                  "policy_folder_id" : {
+                    "type" : "integer",
+                    "description" : "When provided, moves the asset to the same-customer policy folder. Nil, nonexistent, or cross-customer folder IDs return 422."
                   },
                   "asset_serial" : {
                     "type" : "string"
@@ -1394,6 +1405,9 @@
                       },
                       "contact_id" : {
                         "type" : [ "integer", "null" ]
+                      },
+                      "policy_folder_id" : {
+                        "type" : "integer"
                       },
                       "created_at" : {
                         "type" : "string"
@@ -1796,6 +1810,144 @@
         }
       }
     },
+    "/customer_assets/{id}/installed_applications" : {
+      "get" : {
+        "summary" : "Retrieves installed applications for an Asset",
+        "tags" : [ "Asset" ],
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "description" : "Required permission: Assets - List/Search\nSingle-Customer Users can only access own assets.\n\nReturns a paginated list of software installed on the asset.\nThe `installed_at` date falls back to `created_at` when no explicit installation date is recorded.\n",
+        "parameters" : [
+          {
+            "name" : "id",
+            "in" : "path",
+            "description" : "Asset ID",
+            "required" : true,
+            "schema" : {
+              "type" : "integer"
+            }
+          },
+          {
+            "name" : "page",
+            "in" : "query",
+            "description" : "Page number (default: 1)",
+            "required" : false,
+            "schema" : {
+              "type" : "integer"
+            }
+          },
+          {
+            "name" : "per_page",
+            "in" : "query",
+            "description" : "Records per page (default: 100, max: 100)",
+            "required" : false,
+            "schema" : {
+              "type" : "integer"
+            }
+          }
+        ],
+        "responses" : {
+          "200" : {
+            "description" : "successful",
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "example_0" : {
+                    "value" : {
+                      "installed_applications" : [
+                        {
+                          "name" : "Google Chrome",
+                          "vendor" : "Google LLC",
+                          "version" : "123.0.0",
+                          "installed_at" : "2026-01-15"
+                        },
+                        {
+                          "name" : "Emsisoft Anti-Malware",
+                          "vendor" : "Emsisoft",
+                          "version" : "2024.1.0.0",
+                          "installed_at" : "2025-11-20"
+                        }
+                      ],
+                      "meta" : {
+                        "total_pages" : 1,
+                        "total_entries" : 2,
+                        "per_page" : 100,
+                        "page" : 1
+                      }
+                    }
+                  }
+                },
+                "schema" : {
+                  "type" : "object",
+                  "required" : [ "installed_applications", "meta" ],
+                  "properties" : {
+                    "installed_applications" : {
+                      "type" : "array",
+                      "items" : {
+                        "type" : "object",
+                        "required" : [ "name" ],
+                        "properties" : {
+                          "name" : {
+                            "type" : "string",
+                            "description" : "Application name"
+                          },
+                          "vendor" : {
+                            "type" : [ "string", "null" ],
+                            "description" : "Software vendor"
+                          },
+                          "version" : {
+                            "type" : [ "string", "null" ],
+                            "description" : "Installed version"
+                          },
+                          "installed_at" : {
+                            "type" : [ "string", "null" ],
+                            "format" : "date",
+                            "description" : "Installation date. Falls back to first-seen date when not recorded."
+                          }
+                        }
+                      }
+                    },
+                    "meta" : {
+                      "type" : "object",
+                      "required" : [ "total_pages", "total_entries", "per_page", "page" ],
+                      "properties" : {
+                        "total_pages" : {
+                          "type" : "integer"
+                        },
+                        "total_entries" : {
+                          "type" : "integer"
+                        },
+                        "per_page" : {
+                          "type" : "integer"
+                        },
+                        "page" : {
+                          "type" : "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "asset not found",
+            "content" : {
+              "application/json" : {
+                "examples" : {
+                  "example_0" : {
+                    "value" : {
+                      "error" : "Asset not found"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/callerid" : {
       "get" : {
         "summary" : "Get Caller ID",
@@ -2114,7 +2266,8 @@
                     "vendor_id" : null,
                     "properties" : { },
                     "opt_out" : false,
-                    "extension" : null
+                    "extension" : null,
+                    "enable_portal_user" : false
                   } ],
                   "meta" : {
                     "total_pages" : 1,
@@ -2183,6 +2336,13 @@
                   },
                   "notes" : {
                     "type" : "string"
+                  },
+                  "extension" : {
+                    "type" : "string"
+                  },
+                  "enable_portal_user" : {
+                    "type" : "boolean",
+                    "description" : "Creates or removes a Portal User login for this contact. Requires a valid email when set to true."
                   }
                 },
                 "required" : [ "customer_id" ]
@@ -2217,7 +2377,8 @@
                   "vendor_id" : null,
                   "properties" : { },
                   "opt_out" : false,
-                  "extension" : null
+                  "extension" : null,
+                  "enable_portal_user" : false
                 }
               }
             }
@@ -2269,6 +2430,7 @@
                     "properties" : { },
                     "opt_out" : false,
                     "extension" : null,
+                    "enable_portal_user" : false,
                     "processed_phone" : null,
                     "processed_mobile" : null
                   },
@@ -2383,6 +2545,10 @@
                     "extension" : {
                       "type" : "string",
                       "nullable" : true
+                    },
+                    "enable_portal_user" : {
+                      "type" : "boolean",
+                      "nullable" : true
                     }
                   }
                 }
@@ -2467,6 +2633,13 @@
                   },
                   "notes" : {
                     "type" : "string"
+                  },
+                  "extension" : {
+                    "type" : "string"
+                  },
+                  "enable_portal_user" : {
+                    "type" : "boolean",
+                    "description" : "Creates or removes a Portal User login for this contact. Requires a valid email when set to true."
                   }
                 },
                 "required" : [ "name" ]
@@ -2501,7 +2674,8 @@
                   "vendor_id" : null,
                   "properties" : { },
                   "opt_out" : false,
-                  "extension" : null
+                  "extension" : null,
+                  "enable_portal_user" : false
                 }
               }
             }
@@ -2552,7 +2726,8 @@
                     "vendor_id" : null,
                     "properties" : { },
                     "opt_out" : false,
-                    "extension" : null
+                    "extension" : null,
+                    "enable_portal_user" : false
                   },
                   "errors" : "Customer can't be blank"
                 }
@@ -3506,6 +3681,15 @@
           "schema" : {
             "type" : "integer"
           }
+        }, {
+          "name" : "created_after",
+          "in" : "query",
+          "required" : false,
+          "description" : "Returns Estimates created after the date. Example \"2019-02-25\".",
+          "schema" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
         } ],
         "responses" : {
           "200" : {
@@ -4250,7 +4434,10 @@
                     "contact_id" : null,
                     "note" : null,
                     "hardwarecost" : null,
-                    "user_id" : null
+                    "user_id" : null,
+                    "is_recurring" : true,
+                    "amount_paid" : 0.0,
+                    "balance_due" : 0.0
                   } ],
                   "meta" : {
                     "total_pages" : 1,
@@ -6928,6 +7115,322 @@
         }
       }
     },
+    "/policy_folders" : {
+      "get" : {
+        "summary" : "Returns a paginated list of Policy Folders",
+        "tags" : [ "Policy Folder" ],
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "description" : "Required permission: Policies - List/Search\nSyncro accounts only.\n",
+        "parameters" : [ {
+          "name" : "customer_id",
+          "in" : "query",
+          "required" : true,
+          "description" : "Returns Policy Folders that belong to a Customer ID",
+          "schema" : {
+            "type" : "integer"
+          }
+        }, {
+          "name" : "page",
+          "in" : "query",
+          "required" : false,
+          "description" : "Returns provided page of results",
+          "schema" : {
+            "type" : "integer"
+          }
+        }, {
+          "name" : "per_page",
+          "in" : "query",
+          "required" : false,
+          "description" : "Number of results per page, up to 100",
+          "schema" : {
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "successful",
+            "content" : {
+              "application/json" : {
+                "example" : {
+                  "policy_folders" : [ {
+                    "id" : 1,
+                    "name" : "Root",
+                    "parent_id" : null,
+                    "partial_policy_id" : null,
+                    "effective_policy_id" : null,
+                    "created_at" : "2026-05-04T20:57:28.212Z",
+                    "updated_at" : "2026-05-04T20:57:28.212Z"
+                  }, {
+                    "id" : 2,
+                    "name" : "Workstations",
+                    "parent_id" : 1,
+                    "partial_policy_id" : 12,
+                    "effective_policy_id" : 12,
+                    "created_at" : "2026-05-04T20:57:28.212Z",
+                    "updated_at" : "2026-05-04T20:57:28.212Z"
+                  } ],
+                  "meta" : {
+                    "total_pages" : 1,
+                    "total_entries" : 2,
+                    "per_page" : 100,
+                    "page" : 1
+                  }
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Invalid request",
+            "content" : {
+              "application/json" : {
+                "example" : {
+                  "errors" : [ "Customer not found" ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post" : {
+        "summary" : "Creates a Policy Folder",
+        "tags" : [ "Policy Folder" ],
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "description" : "Required permission: Policies - Create\nSyncro accounts only.\n",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "customer_id" : {
+                    "type" : "integer"
+                  },
+                  "name" : {
+                    "type" : "string"
+                  },
+                  "parent_id" : {
+                    "type" : "integer"
+                  }
+                },
+                "required" : [ "customer_id", "name", "parent_id" ]
+              }
+            }
+          },
+          "description" : "Policy Folder object that needs to be added"
+        },
+        "responses" : {
+          "201" : {
+            "description" : "successful",
+            "content" : {
+              "application/json" : {
+                "example" : {
+                  "policy_folder" : {
+                    "id" : 2,
+                    "name" : "Workstations",
+                    "parent_id" : 1,
+                    "partial_policy_id" : null,
+                    "effective_policy_id" : null,
+                    "created_at" : "2026-05-04T20:57:28.212Z",
+                    "updated_at" : "2026-05-04T20:57:28.212Z"
+                  }
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Invalid request",
+            "content" : {
+              "application/json" : {
+                "example" : {
+                  "errors" : [ "Customer not found" ]
+                }
+              }
+            }
+          },
+          "422" : {
+            "description" : "Invalid request",
+            "content" : {
+              "application/json" : {
+                "example" : {
+                  "errors" : [ "Name is required" ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/policy_folders/{id}" : {
+      "get" : {
+        "summary" : "Retrieves a Policy Folder by ID",
+        "tags" : [ "Policy Folder" ],
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "description" : "Required permission: Policies - List/Search\nSyncro accounts only.\n",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "successful",
+            "content" : {
+              "application/json" : {
+                "example" : {
+                  "policy_folder" : {
+                    "id" : 2,
+                    "name" : "Workstations",
+                    "parent_id" : 1,
+                    "partial_policy_id" : 12,
+                    "effective_policy_id" : 12,
+                    "created_at" : "2026-05-04T20:57:28.212Z",
+                    "updated_at" : "2026-05-04T20:57:28.212Z"
+                  }
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Invalid request",
+            "content" : {
+              "application/json" : {
+                "example" : {
+                  "errors" : [ "Policy folder not found" ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "put" : {
+        "summary" : "Updates an existing Policy Folder by ID",
+        "tags" : [ "Policy Folder" ],
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "description" : "Required permission: Policies - Edit\nSyncro accounts only.\n",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "name" : {
+                    "type" : "string"
+                  },
+                  "parent_id" : {
+                    "type" : "integer"
+                  },
+                  "partial_policy_id" : {
+                    "type" : "integer",
+                    "nullable" : true
+                  }
+                }
+              }
+            }
+          },
+          "description" : "Policy Folder object that needs to be updated"
+        },
+        "responses" : {
+          "200" : {
+            "description" : "successful",
+            "content" : {
+              "application/json" : {
+                "example" : {
+                  "policy_folder" : {
+                    "id" : 2,
+                    "name" : "Managed Workstations",
+                    "parent_id" : 1,
+                    "partial_policy_id" : 12,
+                    "effective_policy_id" : 12,
+                    "created_at" : "2026-05-04T20:57:28.212Z",
+                    "updated_at" : "2026-05-04T20:57:28.212Z"
+                  }
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "Invalid request",
+            "content" : {
+              "application/json" : {
+                "example" : {
+                  "errors" : [ "Policy folder not found" ]
+                }
+              }
+            }
+          },
+          "422" : {
+            "description" : "Invalid request",
+            "content" : {
+              "application/json" : {
+                "example" : {
+                  "errors" : [ "Parent folder must belong to the same customer" ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete" : {
+        "summary" : "Deletes a Policy Folder by ID",
+        "tags" : [ "Policy Folder" ],
+        "security" : [ {
+          "bearerAuth" : [ ]
+        } ],
+        "description" : "Required permission: Policies - Delete\nSyncro accounts only.\n",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "successful"
+          },
+          "404" : {
+            "description" : "Invalid request",
+            "content" : {
+              "application/json" : {
+                "example" : {
+                  "errors" : [ "Policy folder not found" ]
+                }
+              }
+            }
+          },
+          "422" : {
+            "description" : "Invalid request",
+            "content" : {
+              "application/json" : {
+                "example" : {
+                  "errors" : [ "Cannot delete a folder with child folders" ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/portal_users" : {
       "get" : {
         "summary" : "Returns a paginated list of Portal Users",
@@ -8892,6 +9395,15 @@
           "schema" : {
             "type" : "integer"
           }
+        }, {
+          "name" : "created_after",
+          "in" : "query",
+          "required" : false,
+          "description" : "Returns RMM Alerts created after the date. Example \"2019-02-25\".",
+          "schema" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
         } ],
         "responses" : {
           "200" : {
@@ -8938,44 +9450,30 @@
               "schema" : {
                 "type" : "object",
                 "properties" : {
-                  "customer_id" : {
-                    "type" : "integer"
-                  },
-                  "asset_id" : {
-                    "type" : "integer"
-                  },
-                  "description" : {
-                    "type" : "string"
-                  },
-                  "resolved" : {
-                    "type" : "boolean"
-                  },
-                  "status" : {
-                    "type" : "string"
-                  },
-                  "properties" : {
+                  "rmm_alert" : {
                     "type" : "object",
                     "properties" : {
-                      "subject" : {
+                      "customer_id" : {
+                        "type" : "integer"
+                      },
+                      "asset_id" : {
+                        "type" : "integer"
+                      },
+                      "description" : {
                         "type" : "string"
                       },
-                      "body" : {
+                      "formatted_output" : {
                         "type" : "string"
                       },
-                      "hidden" : {
+                      "resolved" : {
                         "type" : "boolean"
                       },
-                      "sms_body" : {
+                      "status" : {
                         "type" : "string"
                       },
-                      "do_not_email" : {
-                        "type" : "boolean"
-                      },
-                      "tech" : {
-                        "type" : "string"
-                      },
-                      "skip_automation" : {
-                        "type" : "boolean"
+                      "properties" : {
+                        "type" : "object",
+                        "additionalProperties" : true
                       }
                     }
                   }
@@ -9742,6 +10240,176 @@
         }
       }
     },
+    "/ticket_blueprints/{id}/apply": {
+      "post": {
+        "summary": "Creates tickets from a Blueprint",
+        "tags": [
+          "Ticket Blueprint"
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+
+            ]
+          }
+        ],
+        "description": "Required permission: Ticket Blueprints - Apply (Create Ticket from Blueprint)\nCreates a parent ticket and child tickets from the blueprint, assigned to the given customer.\nReturns the parent ticket ID and array of child ticket IDs.\n",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Blueprint ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ticket_id": {
+                      "type": "integer",
+                      "description": "ID of the created parent ticket"
+                    },
+                    "child_ticket_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "description": "IDs of created child tickets"
+                    }
+                  },
+                  "required": [
+                    "ticket_id",
+                    "child_ticket_ids"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Customer not found"
+          },
+          "422": {
+            "description": "Unprocessable Entity (blueprint invalid)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Error message"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "customer_id"
+                ],
+                "properties": {
+                  "customer_id": {
+                    "type": "integer",
+                    "description": "Customer ID the ticket(s) will be assigned to"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ticket_blueprints": {
+      "get": {
+        "summary": "Returns a paginated list of Ticket Blueprints",
+        "tags": [
+          "Ticket Blueprint"
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+
+            ]
+          }
+        ],
+        "description": "Required permission: Ticket Blueprints - View List\nReturns only blueprints available for ticket creation (hidden_for_ticket_creation: false).\n",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "description": "Items per page (default 20, max 100)",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "successful",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "example_0": {
+                    "value": {
+                      "ticket_blueprints": [
+                        {
+                          "id": 1,
+                          "name": "Standalone Blueprint",
+                          "role": "standalone",
+                          "children_count": 0
+                        }
+                      ],
+                      "meta": {
+                        "page": 1,
+                        "per_page": 20,
+                        "total_pages": 1,
+                        "total_entries": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
     "/ticket_timers" : {
       "get" : {
         "summary" : "Returns a paginated list of Ticket Timers",
@@ -9767,6 +10435,23 @@
           "schema" : {
             "type" : "string",
             "format" : "date-time"
+          }
+        }, {
+          "name" : "customer_id",
+          "in" : "query",
+          "description" : "Returns Ticket Timers for tickets belonging to the given customer.",
+          "required" : false,
+          "schema" : {
+            "type" : "integer"
+          }
+        }, {
+          "name" : "billing_status",
+          "in" : "query",
+          "description" : "Filters Ticket Timers by derived billing status. Allowed values: non-billable, unbilled, billed, invoiced. Unknown values are ignored.",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "enum" : [ "non-billable", "unbilled", "billed", "invoiced" ]
           }
         }, {
           "name" : "page",
@@ -9997,6 +10682,22 @@
             "type" : "integer"
           }
         }, {
+          "name" : "asset_name",
+          "in" : "query",
+          "required" : false,
+          "description" : "Returns only Tickets linked (via assets) to assets whose name matches the provided value (case-insensitive partial match). Combine with `customer_id` to scope the asset search to a single customer; without `customer_id` the search spans all matching customers in the authenticated account. Combine with `asset_serial` to AND both filters against the same asset match set.",
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "asset_serial",
+          "in" : "query",
+          "required" : false,
+          "description" : "Returns only Tickets linked (via assets) to assets whose serial number matches the provided value (case-insensitive partial match). Combine with `asset_name` to AND both filters against the same asset match set.",
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
           "name": "comment_format",
           "in": "query",
           "required": false,
@@ -10063,6 +10764,7 @@
                     "resolution_time": null,
                     "response_time": null,
                     "customer_icons": [ ],
+                    "assets": [ ],
                     "comments" : [ ],
                     "user" : null
                   } ],
@@ -10878,6 +11580,217 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/ticket_comments": {
+      "get": {
+        "summary": "Returns a paginated flat list of comments across multiple tickets",
+        "tags": [
+          "Ticket"
+        ],
+        "security": [
+          {
+            "bearerAuth": [
+
+            ]
+          }
+        ],
+        "description": "Required permissions: \"Tickets - View Details\" or \"Tickets - View 'Their Ticket' Details (assigned to them)\"\n\nReturns a flat, paginated list of comments across multiple tickets sorted by\nticket_id ASC, created_at DESC. All comments for a given ticket are adjacent\nin the response, with the newest comments first within each ticket.\n\nComments can be scoped to specific tickets using a saved Ticket View\n(ticket_search_id) and/or direct ticket filters such as customer_id, status, etc.\n\nComment-level date filters use the `comment_` prefix to distinguish them from\nthe ticket-level date filters that share similar names (e.g. created_after).\n\nSingle-Customer Users can only access comments for their own tickets.\n",
+        "parameters": [
+          {
+            "name": "ticket_search_id",
+            "in": "query",
+            "required": false,
+            "description": "Scope results to tickets matching this saved Ticket View (Ticket Search) ID",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "ticket_id",
+            "in": "query",
+            "required": false,
+            "description": "Scope results to a specific ticket",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "customer_id",
+            "in": "query",
+            "required": false,
+            "description": "Scope results to tickets belonging to this customer",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "contact_id",
+            "in": "query",
+            "required": false,
+            "description": "Scope results to tickets belonging to this contact",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "description": "Scope results to tickets assigned to this user",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Scope results to tickets with this status. Use 'Not Closed' to exclude resolved tickets.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resolved_after",
+            "in": "query",
+            "format": "date-time",
+            "required": false,
+            "description": "Scope results to tickets resolved after this date",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "created_after",
+            "in": "query",
+            "format": "date-time",
+            "required": false,
+            "description": "Scope results to tickets created after this date",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since_updated_at",
+            "in": "query",
+            "format": "date-time",
+            "required": false,
+            "description": "Scope results to tickets updated after this date",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mine",
+            "in": "query",
+            "required": false,
+            "description": "When true, scope results to tickets assigned to the authenticated user",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "comment_created_after",
+            "in": "query",
+            "format": "date-time",
+            "required": false,
+            "description": "Filter comments created after this date",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "comment_created_before",
+            "in": "query",
+            "format": "date-time",
+            "required": false,
+            "description": "Filter comments created before this date",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "Page of results to return. Default is 1.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "description": "Number of comments per page. Default is 25, maximum is 100.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "comment_format",
+            "in": "query",
+            "required": false,
+            "description": "Body format for comments. Allowed values: 'plaintext' (default), 'richtext', 'original'.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "successful",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "example_0": {
+                    "value": {
+                      "comments": [
+                        {
+                          "id": 1,
+                          "created_at": "2025-12-23T00:00:00Z",
+                          "updated_at": "2025-12-23T00:00:00Z",
+                          "ticket_id": 1,
+                          "subject": "Test Subject",
+                          "body": "Test Body",
+                          "tech": "Test Tech",
+                          "hidden": false,
+                          "user_id": 1,
+                          "is_rich_text": false,
+                          "user": {
+                          }
+                        },
+                        {
+                          "id": 2,
+                          "created_at": "2025-12-22T00:00:00Z",
+                          "updated_at": "2025-12-22T00:00:00Z",
+                          "ticket_id": 2,
+                          "subject": "Another Subject",
+                          "body": "Another Body",
+                          "tech": "Test Tech",
+                          "hidden": false,
+                          "user_id": 1,
+                          "is_rich_text": false,
+                          "user": {
+                          }
+                        }
+                      ],
+                      "meta": {
+                        "total_pages": 1,
+                        "page": 1,
+                        "per_page": 25
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized"
           }
         }
       }

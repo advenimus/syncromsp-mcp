@@ -14,6 +14,7 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
           properties: {
             status: { type: "string", description: "Filter by status (Fresh, Draft, Approved, Declined)" },
             customer_id: { type: "number", description: "Filter by customer ID" },
+            created_after: { type: "string", description: "Return estimates created after this date (e.g., '2026-02-25')" },
             page: { type: "number", description: "Page number" },
           },
         },
@@ -22,6 +23,7 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
         const params = pickDefined({
           status: optionalString(args.status),
           customer_id: optionalId(args.customer_id),
+          created_after: optionalString(args.created_after),
           page: optionalNumber(args.page),
         });
         return jsonResult(await client.get("/estimates", params as Record<string, string | number | boolean>));

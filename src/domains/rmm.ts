@@ -13,12 +13,17 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
           type: "object" as const,
           properties: {
             status: { type: "string", description: "Filter by status" },
+            created_after: { type: "string", description: "Return alerts created after this date (e.g., '2026-02-25')" },
             page: { type: "number", description: "Page number" },
           },
         },
       },
       handler: async (args) => {
-        const params = pickDefined({ status: optionalString(args.status), page: optionalNumber(args.page) });
+        const params = pickDefined({
+          status: optionalString(args.status),
+          created_after: optionalString(args.created_after),
+          page: optionalNumber(args.page),
+        });
         return jsonResult(await client.get("/rmm_alerts", params as Record<string, string | number | boolean>));
       },
     },
