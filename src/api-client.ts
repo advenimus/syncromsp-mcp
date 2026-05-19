@@ -83,13 +83,23 @@ export class SyncroApiClient {
 
   private formatErrorMessage(status: number, details?: SyncroErrorResponse): string {
     const base = `Syncro API error (${status})`;
+    const apiDetail = this.extractApiErrorDetail(details);
 
-    if (status === 401) return `${base}: Invalid or expired API key. Check SYNCRO_API_KEY.`;
-    if (status === 403) return `${base}: Insufficient permissions. Check your API token's custom permissions.`;
-    if (status === 404) return `${base}: Resource not found.`;
-    if (status === 429) return `${base}: Rate limit exceeded. Please wait before retrying.`;
+    const withDetail = (generic: string): string =>
+      apiDetail ? `${base}: ${generic} — ${apiDetail}` : `${base}: ${generic}`;
 
-    if (details?.errors) {
+    if (status === 401) return withDetail("Invalid or expired API key. Check SYNCRO_API_KEY.");
+    if (status === 403) return withDetail("Insufficient permissions. Check your API token's custom permissions.");
+    if (status === 404) return withDetail("Resource not found.");
+    if (status === 429) return withDetail("Rate limit exceeded. Please wait before retrying.");
+
+    if (apiDetail) return `${base}: ${apiDetail}`;
+    return base;
+  }
+
+  private extractApiErrorDetail(details?: SyncroErrorResponse): string | undefined {
+    if (!details) return undefined;
+    if (details.errors) {
       let errMsg: string;
       if (Array.isArray(details.errors)) {
         errMsg = details.errors.join(", ");
@@ -103,12 +113,11 @@ export class SyncroApiClient {
       } else {
         errMsg = String(details.errors);
       }
-      if (errMsg.length > 0) return `${base}: ${errMsg}`;
+      if (errMsg.length > 0) return errMsg;
     }
-    if (details?.error) return `${base}: ${details.error}`;
-    if (details?.message) return `${base}: ${details.message}`;
-
-    return base;
+    if (details.error) return details.error;
+    if (details.message) return details.message;
+    return undefined;
   }
 
   async get<T>(path: string, params?: Record<string, string | number | boolean | undefined>): Promise<T> {

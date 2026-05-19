@@ -118,6 +118,62 @@ describe("SyncroApiClient", () => {
     vi.restoreAllMocks();
   });
 
+  it("should append API-provided detail to 403 errors when present", async () => {
+    const client = new SyncroApiClient({ apiKey: "key", subdomain: "mycompany" });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ errors: ["Required permission: Policies - Create"] }), { status: 403 })
+    );
+
+    await expect(client.post("/policy_folders", { name: "x" })).rejects.toThrow(
+      "Insufficient permissions. Check your API token's custom permissions. — Required permission: Policies - Create"
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("should append API-provided detail to 404 errors when present", async () => {
+    const client = new SyncroApiClient({ apiKey: "key", subdomain: "mycompany" });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ errors: ["Policy folder not found"] }), { status: 404 })
+    );
+
+    await expect(client.get("/policy_folders/999")).rejects.toThrow(
+      "Resource not found. — Policy folder not found"
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("should keep generic 403 message when body has no errors", async () => {
+    const client = new SyncroApiClient({ apiKey: "key", subdomain: "mycompany" });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("", { status: 403 })
+    );
+
+    await expect(client.get("/tickets")).rejects.toThrow(
+      "Syncro API error (403): Insufficient permissions. Check your API token's custom permissions."
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("should surface nested field errors on 422", async () => {
+    const client = new SyncroApiClient({ apiKey: "key", subdomain: "mycompany" });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ errors: { parent_id: ["must belong to the same customer"] } }), { status: 422 })
+    );
+
+    await expect(client.put("/policy_folders/1", { parent_id: 99 })).rejects.toThrow(
+      "parent_id: must belong to the same customer"
+    );
+
+    vi.restoreAllMocks();
+  });
+
   it("should skip undefined query params", async () => {
     const client = new SyncroApiClient({
       apiKey: "key",
