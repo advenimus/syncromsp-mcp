@@ -1,21 +1,29 @@
 import type { SyncroApiClient } from "../api-client.js";
 import type { DomainHandler, DomainTool } from "../types.js";
 import { jsonResult } from "../types.js";
-import { optionalString, optionalNumber, optionalBoolean, pickDefined } from "../utils/validators.js";
+import { optionalString, optionalNumber, optionalBoolean, optionalId, pickDefined } from "../utils/validators.js";
 
 export function createDomain(client: SyncroApiClient): DomainHandler {
   const tools: DomainTool[] = [
     {
       definition: {
         name: "time_list_timers",
-        description: "List ticket timers (active/running timers across tickets)",
+        description: "List ticket timers (active/running timers across tickets). Filter by customer or derived billing status to support automated billing workflows.",
         inputSchema: {
           type: "object" as const,
-          properties: { page: { type: "number", description: "Page number" } },
+          properties: {
+            customer_id: { type: "number", description: "Return timers for tickets belonging to this customer" },
+            billing_status: { type: "string", description: "Filter by derived billing status: 'non-billable', 'unbilled', 'billed', or 'invoiced'" },
+            page: { type: "number", description: "Page number" },
+          },
         },
       },
       handler: async (args) => {
-        const params = pickDefined({ page: optionalNumber(args.page) });
+        const params = pickDefined({
+          customer_id: optionalId(args.customer_id),
+          billing_status: optionalString(args.billing_status),
+          page: optionalNumber(args.page),
+        });
         return jsonResult(await client.get("/ticket_timers", params as Record<string, string | number | boolean>));
       },
     },

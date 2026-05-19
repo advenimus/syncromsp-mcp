@@ -19,6 +19,7 @@ const domainLoaders: Record<DomainName, () => Promise<{ createDomain: (client: S
   scheduling: () => import("./scheduling.js"),
   time: () => import("./time.js"),
   admin: () => import("./admin.js"),
+  policies: () => import("./policies.js"),
 };
 
 export async function loadDomain(name: DomainName, client: SyncroApiClient): Promise<DomainHandler> {

@@ -16,6 +16,7 @@ export const DOMAIN_NAMES = [
   "scheduling",
   "time",
   "admin",
+  "policies",
 ] as const;
 
 export type DomainName = (typeof DOMAIN_NAMES)[number];
@@ -37,6 +38,7 @@ export const DOMAIN_DESCRIPTIONS: Record<DomainName, string> = {
   time: "Ticket timers and employee time logs",
   admin:
     "Search, users, vendors, wiki, portal users, canned responses, settings, worksheets, devices, ticket forms",
+  policies: "Policy folders for asset policy assignment (Syncro accounts only)",
 };
 
 export interface ToolResult {

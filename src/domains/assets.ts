@@ -75,7 +75,7 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
     {
       definition: {
         name: "assets_update",
-        description: "Update an existing asset. Use this to set asset properties (hdd, manufacturer, model, os, cpu_name, ram, last_boot) after creation, as properties on create are ignored.",
+        description: "Update an existing asset. Use this to set asset properties (hdd, manufacturer, model, os, cpu_name, ram, last_boot) after creation, as properties on create are ignored. Pass policy_folder_id to move the asset to a same-customer policy folder (see policies_list_folders).",
         inputSchema: {
           type: "object" as const,
           properties: {
@@ -85,6 +85,7 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
             asset_type_id: { type: "number", description: "Asset type ID" },
             customer_id: { type: "number", description: "Customer ID" },
             asset_serial: { type: "string", description: "Serial number" },
+            policy_folder_id: { type: "number", description: "Policy folder ID to assign this asset to. Must belong to the same customer; cross-customer or nonexistent IDs return 422." },
             properties: { type: "object", description: "Asset properties (hdd, manufacturer, model, os, cpu_name, ram, last_boot, etc.)" },
           },
           required: ["id"],
@@ -98,6 +99,7 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
           asset_type_id: optionalId(args.asset_type_id),
           customer_id: optionalId(args.customer_id),
           asset_serial: optionalString(args.asset_serial),
+          policy_folder_id: optionalId(args.policy_folder_id),
           properties: args.properties,
         });
         return jsonResult(await client.put(`/customer_assets/${id}`, body));
@@ -114,6 +116,29 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
         },
       },
       handler: async (args) => jsonResult(await client.get(`/customer_assets/${requireId(args.id)}/patches`)),
+    },
+    {
+      definition: {
+        name: "assets_get_installed_applications",
+        description: "Get the paginated list of software applications installed on an asset. Returns name, vendor, version, and installed_at (falls back to first-seen date when no explicit install date is recorded).",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            id: { type: "number", description: "Asset ID" },
+            page: { type: "number", description: "Page number (default 1)" },
+            per_page: { type: "number", description: "Records per page (default 100, max 100)" },
+          },
+          required: ["id"],
+        },
+      },
+      handler: async (args) => {
+        const id = requireId(args.id);
+        const params = pickDefined({
+          page: optionalNumber(args.page),
+          per_page: optionalNumber(args.per_page),
+        });
+        return jsonResult(await client.get(`/customer_assets/${id}/installed_applications`, params as Record<string, string | number | boolean>));
+      },
     },
     {
       definition: {
