@@ -192,4 +192,28 @@ describe("SyncroApiClient", () => {
 
     fetchSpy.mockRestore();
   });
+
+  it("should send multipart uploads as FormData without a JSON Content-Type", async () => {
+    const client = new SyncroApiClient({
+      apiKey: "key",
+      subdomain: "mycompany",
+    });
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: 1 }), { status: 201 })
+    );
+
+    const form = new FormData();
+    form.append("file", new Blob(["hello"], { type: "text/csv" }), "a.csv");
+    await client.postMultipart("/purchase_orders/1/attachments", form);
+
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://mycompany.syncromsp.com/api/v1/purchase_orders/1/attachments");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(form);
+    expect(init.headers).not.toHaveProperty("Content-Type");
+    expect(init.headers).toHaveProperty("Authorization", "Bearer key");
+
+    fetchSpy.mockRestore();
+  });
 });

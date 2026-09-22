@@ -42,7 +42,7 @@ export class SyncroApiClient {
     path: string,
     options: {
       params?: Record<string, string | number | boolean | undefined>;
-      body?: Record<string, unknown>;
+      body?: Record<string, unknown> | FormData;
     } = {}
   ): Promise<T> {
     await this.rateLimiter.acquire();
@@ -55,7 +55,10 @@ export class SyncroApiClient {
 
     const fetchOptions: RequestInit = { method, headers };
 
-    if (options.body) {
+    if (options.body instanceof FormData) {
+      // fetch must set the multipart Content-Type itself so it can include the boundary
+      fetchOptions.body = options.body;
+    } else if (options.body) {
       headers["Content-Type"] = "application/json";
       fetchOptions.body = JSON.stringify(options.body);
     }
@@ -126,6 +129,10 @@ export class SyncroApiClient {
 
   async post<T>(path: string, body?: Record<string, unknown>, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
     return this.request<T>("POST", path, { body, params });
+  }
+
+  async postMultipart<T>(path: string, form: FormData): Promise<T> {
+    return this.request<T>("POST", path, { body: form });
   }
 
   async put<T>(path: string, body?: Record<string, unknown>, params?: Record<string, string | number | boolean | undefined>): Promise<T> {

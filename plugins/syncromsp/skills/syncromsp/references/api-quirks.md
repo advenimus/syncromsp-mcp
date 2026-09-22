@@ -26,6 +26,26 @@ For full ticket comment history, call `tickets_get_comments`. Don't infer ticket
 
 `tickets_add_timer` records time but does not bill. You MUST follow with `tickets_charge_timer` using the returned `timer_entry_id`. (See `references/time-tracking.md`.)
 
+## Live timers ignore user_id
+
+`time_create_timer` always creates the timer for the API token's owner. There is no way to start a live timer for another tech. Use `tickets_add_timer` with `user_id` instead. If the owner already has a running or paused timer on the ticket, Syncro resumes and returns that one rather than creating a second.
+
+## time_stop_timer can charge on its own
+
+On accounts with "charge timers by default", stopping a live timer also creates the ticket line item. Check `ticket_line_item_id` in the stop response before calling `tickets_charge_timer`, or the time is billed twice.
+
+## Draft invoice tools depend on an account setting
+
+`invoices_publish` and `invoices_convert_to_draft` return 404 when draft invoices are off, even for a valid invoice ID. `invoices_convert_to_draft` also returns 422 once a payment is applied or the invoice has synced to accounting.
+
+## rmm_schedule_script can't list scripts or read output
+
+There is no API to list scripts or fetch results. The user must supply the script ID, and results must be checked in Syncro. Only one-time runs (`now` or `later`) are allowed; recurring schedules return 422.
+
+## Purchase order attachments: use a link or a path
+
+`admin_add_po_attachment` should almost always get `file_url` (any setup) or `file_path` (local installs). `file_base64` means writing the whole file into the tool call, which only works for tiny files. Syncro checks the real file type, not the name, so a renamed file is rejected. Links to private or local network addresses are refused.
+
 ## Pagination is opt-in per endpoint
 
 List endpoints generally paginate. Always check whether a result might be page 1 of many. For invoices and time logs especially, pages 2+ are common during reconciliation work.

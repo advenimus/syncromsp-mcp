@@ -11,11 +11,11 @@ This skill is **company-agnostic**. User-specific values (your subdomain, techni
 | `SKILL.md` | Skill entry point — invocation rules, hyperlink rule, core principles, first-run setup |
 | `config.example.json` | Template for the discovered/cached MSP-specific identifiers |
 | `references/tickets.md` | Ticket creation, statuses, comments, problem types |
-| `references/time-tracking.md` | Two-step labor logging (timer + charge_timer), labor product selection |
-| `references/billing.md` | Invoices, estimates, payments, recurring billing, line items |
+| `references/time-tracking.md` | Two-step labor logging (timer + charge_timer), live timers, labor product selection |
+| `references/billing.md` | Invoices, draft/publish, estimates, payments, recurring billing, line items |
 | `references/appointments.md` | Scheduling, appointment types |
 | `references/customers.md` | Customers, contacts, leads, contracts, portal users |
-| `references/rmm-and-assets.md` | Assets, RMM alerts, patches, vendors, POs |
+| `references/rmm-and-assets.md` | Assets, RMM alerts, patches, running scripts, vendors, POs |
 | `references/api-quirks.md` | Known API gotchas and workarounds |
 | `learnings/README.md` | Append-only log format — how Claude evolves the skill over time |
 

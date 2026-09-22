@@ -181,6 +181,30 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
     },
     {
       definition: {
+        name: "invoices_publish",
+        description: "Publish a draft invoice so it becomes a normal invoice. Needs draft invoices turned on for the account (404 otherwise). Refunds cannot be drafts, so Syncro refuses to publish them.",
+        inputSchema: {
+          type: "object" as const,
+          properties: { id: { type: "number", description: "Draft invoice ID" } },
+          required: ["id"],
+        },
+      },
+      handler: async (args) => jsonResult(await client.post(`/invoices/${requireId(args.id)}/publish`)),
+    },
+    {
+      definition: {
+        name: "invoices_convert_to_draft",
+        description: "Turn a published invoice back into a draft so it can be edited before re-publishing. Needs draft invoices turned on for the account (404 otherwise). Syncro refuses (422) if a payment has been applied, the invoice was posted to an accounting provider, or it is a refund.",
+        inputSchema: {
+          type: "object" as const,
+          properties: { id: { type: "number", description: "Published invoice ID" } },
+          required: ["id"],
+        },
+      },
+      handler: async (args) => jsonResult(await client.post(`/invoices/${requireId(args.id)}/convert_to_draft`)),
+    },
+    {
+      definition: {
         name: "invoices_add_line_item",
         description: "Add a line item to an invoice. When using product_id, only product_id + quantity are needed -- the API auto-fills name, cost, and price from the product catalog.",
         inputSchema: {
@@ -289,7 +313,7 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
 
   return {
     name: "invoices",
-    description: "Invoices, line items, print/email",
+    description: "Invoices, line items, print/email, publish/draft",
     getTools: () => tools,
   };
 }

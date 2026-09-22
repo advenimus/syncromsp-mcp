@@ -2,6 +2,7 @@ import type { SyncroApiClient } from "../api-client.js";
 import type { DomainHandler, DomainTool } from "../types.js";
 import { jsonResult, textResult } from "../types.js";
 import { requireId, optionalString, optionalNumber, optionalBoolean, optionalId, pickDefined } from "../utils/validators.js";
+import { SCHEDULE_LINE_ITEM_PROPERTIES, buildScheduleLineItemBody } from "./schedule-line-item-fields.js";
 
 export function createDomain(client: SyncroApiClient): DomainHandler {
   const tools: DomainTool[] = [
@@ -116,37 +117,19 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
     {
       definition: {
         name: "scheduling_add_line_item",
-        description: "Add a line item to a schedule. Note: pricing uses cents (retail_cents, cost_cents).",
+        description: "Add a line item to a recurring invoice schedule. Needs name or product_id. Pricing is in cents (retail_cents, cost_cents) or dollars (price_retail, price_cost). recurring_type_id picks the line type, e.g. 4 bills a customer's assets by type and 9 bills the assets in a policy folder; the type-specific fields only apply to their type.",
         inputSchema: {
           type: "object" as const,
           properties: {
             id: { type: "number", description: "Schedule ID" },
-            product_id: { type: "number", description: "Product ID" },
-            name: { type: "string", description: "Item name" },
-            description: { type: "string", description: "Description" },
-            quantity: { type: "number", description: "Quantity" },
-            retail_cents: { type: "number", description: "Retail price in cents" },
-            cost_cents: { type: "number", description: "Cost in cents" },
-            taxable: { type: "boolean", description: "Taxable" },
-            one_time_charge: { type: "boolean", description: "One-time charge (not recurring)" },
-            position: { type: "number", description: "Sort position" },
-            user_id: { type: "number", description: "User ID" },
-            recurring_type_id: { type: "number", description: "Recurring type (1-6)" },
+            ...SCHEDULE_LINE_ITEM_PROPERTIES,
           },
           required: ["id"],
         },
       },
       handler: async (args) => {
         const id = requireId(args.id);
-        const body = pickDefined({
-          product_id: optionalId(args.product_id), name: optionalString(args.name),
-          description: optionalString(args.description), quantity: optionalNumber(args.quantity),
-          retail_cents: optionalNumber(args.retail_cents), cost_cents: optionalNumber(args.cost_cents),
-          taxable: optionalBoolean(args.taxable), one_time_charge: optionalBoolean(args.one_time_charge),
-          position: optionalNumber(args.position), user_id: optionalId(args.user_id),
-          recurring_type_id: optionalNumber(args.recurring_type_id),
-        });
-        return jsonResult(await client.post(`/schedules/${id}/add_line_item`, body));
+        return jsonResult(await client.post(`/schedules/${id}/line_items`, buildScheduleLineItemBody(args)));
       },
     },
     {
@@ -157,7 +140,7 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
           type: "object" as const,
           properties: {
             id: { type: "number", description: "Schedule ID" },
-            line_item_id: { type: "number", description: "Line item ID to remove" },
+            line_item_id: { type: "number", description: "Schedule line item ID to remove" },
             confirmed: { type: "boolean", description: "Must be true" },
           },
           required: ["id", "line_item_id", "confirmed"],
@@ -167,23 +150,20 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
         const id = requireId(args.id);
         const lineItemId = requireId(args.line_item_id, "line_item_id");
         if (args.confirmed !== true) return textResult(`⚠️ CONFIRMATION REQUIRED: Remove line item #${lineItemId} from schedule #${id}? Call again with confirmed: true.`);
-        return jsonResult(await client.post(`/schedules/${id}/remove_line_item`, { line_item_id: lineItemId }));
+        const result = await client.delete(`/schedules/${id}/line_items/${lineItemId}`);
+        return result ? jsonResult(result) : textResult(`Line item #${lineItemId} removed from schedule #${id}.`);
       },
     },
     {
       definition: {
         name: "scheduling_update_line_item",
-        description: "Update a line item on a schedule",
+        description: "Update a line item on a schedule. Takes the same fields as scheduling_add_line_item; only the fields you send change.",
         inputSchema: {
           type: "object" as const,
           properties: {
             id: { type: "number", description: "Schedule ID" },
             line_item_id: { type: "number", description: "Schedule line item ID" },
-            product_id: { type: "number" }, name: { type: "string" },
-            description: { type: "string" }, quantity: { type: "number" },
-            retail_cents: { type: "number" }, cost_cents: { type: "number" },
-            taxable: { type: "boolean" }, one_time_charge: { type: "boolean" },
-            position: { type: "number" }, recurring_type_id: { type: "number" },
+            ...SCHEDULE_LINE_ITEM_PROPERTIES,
           },
           required: ["id", "line_item_id"],
         },
@@ -191,14 +171,7 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
       handler: async (args) => {
         const id = requireId(args.id);
         const lineItemId = requireId(args.line_item_id, "line_item_id");
-        const body = pickDefined({
-          product_id: optionalId(args.product_id), name: optionalString(args.name),
-          description: optionalString(args.description), quantity: optionalNumber(args.quantity),
-          retail_cents: optionalNumber(args.retail_cents), cost_cents: optionalNumber(args.cost_cents),
-          taxable: optionalBoolean(args.taxable), one_time_charge: optionalBoolean(args.one_time_charge),
-          position: optionalNumber(args.position), recurring_type_id: optionalNumber(args.recurring_type_id),
-        });
-        return jsonResult(await client.put(`/schedules/${id}/line_items/${lineItemId}`, body));
+        return jsonResult(await client.put(`/schedules/${id}/line_items/${lineItemId}`, buildScheduleLineItemBody(args)));
       },
     },
   ];

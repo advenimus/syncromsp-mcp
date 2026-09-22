@@ -45,6 +45,25 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
     },
     {
       definition: {
+        name: "assets_list_by_contact",
+        description: "List the assets linked to one contact, sorted by name. 50 per page.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            contact_id: { type: "number", description: "Contact ID" },
+            page: { type: "number", description: "Page number" },
+          },
+          required: ["contact_id"],
+        },
+      },
+      handler: async (args) => {
+        const contactId = requireId(args.contact_id, "contact_id");
+        const params = pickDefined({ page: optionalNumber(args.page) });
+        return jsonResult(await client.get(`/customer_assets/assets_by_contact/${contactId}`, params as Record<string, string | number | boolean>));
+      },
+    },
+    {
+      definition: {
         name: "assets_create",
         description: "Create a new customer asset. Note: asset_type_name must match an existing type in the account. Custom properties on create are IGNORED -- set them via assets_update after creation.",
         inputSchema: {
@@ -160,7 +179,7 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
 
   return {
     name: "assets",
-    description: "Customer assets, patches, chat info",
+    description: "Customer assets, patches, installed apps, assets by contact, chat info",
     getTools: () => tools,
   };
 }

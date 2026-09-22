@@ -24,20 +24,20 @@ export type DomainName = (typeof DOMAIN_NAMES)[number];
 export const DOMAIN_DESCRIPTIONS: Record<DomainName, string> = {
   tickets: "Service tickets, comments, line items, timers, attachments",
   customers: "Customer records, phones, autocomplete",
-  assets: "Customer assets, patches, chat info",
+  assets: "Customer assets, patches, installed apps, assets by contact, chat info",
   contacts: "Customer contacts",
-  invoices: "Invoices, line items, print/email",
+  invoices: "Invoices, line items, print/email, publish/draft",
   estimates: "Estimates, line items, print/email, convert to invoice",
   appointments: "Appointments and appointment types",
   products: "Products, serials, SKUs, categories, images, inventory",
   payments: "Payments, payment methods, payment profiles",
   leads: "Leads and opportunities",
   contracts: "Service contracts and SLAs",
-  rmm: "RMM alerts",
+  rmm: "RMM alerts and script runs",
   scheduling: "Recurring invoice schedules and line items",
-  time: "Ticket timers and employee time logs",
+  time: "Ticket timers (start, pause, stop, billable) and employee time logs",
   admin:
-    "Search, users, vendors, wiki, portal users, canned responses, settings, worksheets, devices, ticket forms",
+    "Search, users, vendors, wiki, portal users, canned responses, settings, worksheets, purchase orders, devices, ticket forms",
   policies: "Policy folders for asset policy assignment (Syncro accounts only)",
 };
 

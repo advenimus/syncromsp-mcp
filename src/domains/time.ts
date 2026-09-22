@@ -1,17 +1,20 @@
 import type { SyncroApiClient } from "../api-client.js";
 import type { DomainHandler, DomainTool } from "../types.js";
 import { jsonResult } from "../types.js";
-import { optionalString, optionalNumber, optionalBoolean, optionalId, pickDefined } from "../utils/validators.js";
+import { requireId, optionalString, optionalNumber, optionalBoolean, optionalId, pickDefined } from "../utils/validators.js";
 
 export function createDomain(client: SyncroApiClient): DomainHandler {
   const tools: DomainTool[] = [
     {
       definition: {
         name: "time_list_timers",
-        description: "List ticket timers (active/running timers across tickets). Filter by customer or derived billing status to support automated billing workflows.",
+        description: "List ticket timers across tickets. Filter by ticket, technician, timer state, customer, or derived billing status. Use status 'running' or 'paused' to find a timer to pause or stop.",
         inputSchema: {
           type: "object" as const,
           properties: {
+            ticket_id: { type: "number", description: "Return timers for this ticket" },
+            user_id: { type: "number", description: "Return timers for this technician" },
+            status: { type: "string", description: "Filter by timer state: 'running', 'paused', or 'stopped'" },
             customer_id: { type: "number", description: "Return timers for tickets belonging to this customer" },
             billing_status: { type: "string", description: "Filter by derived billing status: 'non-billable', 'unbilled', 'billed', or 'invoiced'" },
             page: { type: "number", description: "Page number" },
@@ -20,6 +23,9 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
       },
       handler: async (args) => {
         const params = pickDefined({
+          ticket_id: optionalId(args.ticket_id),
+          user_id: optionalId(args.user_id),
+          status: optionalString(args.status),
           customer_id: optionalId(args.customer_id),
           billing_status: optionalString(args.billing_status),
           page: optionalNumber(args.page),
@@ -29,19 +35,84 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
     },
     {
       definition: {
+        name: "time_create_timer",
+        description: "Start a live timer on a ticket for the API token's technician (user_id cannot be set). If that technician already has a running or paused timer on the ticket, Syncro resumes and returns it instead of making a second one. Omit billable to use the account default. For logging past work, use tickets_add_timer instead.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            ticket_id: { type: "number", description: "Ticket ID (required)" },
+            product_id: { type: "number", description: "Labor product ID used when the timer is charged" },
+            comment_id: { type: "number", description: "Ticket comment to link the timer to" },
+            notes: { type: "string", description: "Notes about the work" },
+            billable: { type: "boolean", description: "Whether the time is billable" },
+          },
+          required: ["ticket_id"],
+        },
+      },
+      handler: async (args) => {
+        const body = pickDefined({
+          ticket_id: requireId(args.ticket_id, "ticket_id"),
+          product_id: optionalId(args.product_id),
+          comment_id: optionalId(args.comment_id),
+          notes: optionalString(args.notes),
+          billable: optionalBoolean(args.billable),
+        });
+        return jsonResult(await client.post("/ticket_timers", body));
+      },
+    },
+    {
+      definition: {
+        name: "time_start_timer",
+        description: "Start a timer that has never run, or resume a paused one. Syncro returns 422 if the timer is already running or stopped.",
+        inputSchema: {
+          type: "object" as const,
+          properties: { id: { type: "number", description: "Timer ID" } },
+          required: ["id"],
+        },
+      },
+      handler: async (args) => jsonResult(await client.post(`/ticket_timers/${requireId(args.id)}/start`)),
+    },
+    {
+      definition: {
+        name: "time_pause_timer",
+        description: "Pause a running timer. Syncro returns 422 if the timer is not running.",
+        inputSchema: {
+          type: "object" as const,
+          properties: { id: { type: "number", description: "Timer ID" } },
+          required: ["id"],
+        },
+      },
+      handler: async (args) => jsonResult(await client.post(`/ticket_timers/${requireId(args.id)}/pause`)),
+    },
+    {
+      definition: {
+        name: "time_stop_timer",
+        description: "Stop a running or paused timer. If the account has 'charge timers by default' turned on, this also adds the charge line item to the ticket; otherwise charge it afterwards with tickets_charge_timer (timer_entry_id = this timer's ID). Syncro returns 422 if the timer is already stopped.",
+        inputSchema: {
+          type: "object" as const,
+          properties: { id: { type: "number", description: "Timer ID" } },
+          required: ["id"],
+        },
+      },
+      handler: async (args) => jsonResult(await client.post(`/ticket_timers/${requireId(args.id)}/stop`)),
+    },
+    {
+      definition: {
         name: "time_update_timer",
-        description: "Update a ticket timer (e.g., start/stop, change notes)",
+        description: "Change whether a ticket timer is billable. To start, pause, or stop a timer use time_start_timer, time_pause_timer, or time_stop_timer; to change notes or duration use tickets_update_timer.",
         inputSchema: {
           type: "object" as const,
           properties: {
             id: { type: "number", description: "Timer ID (required)" },
+            billable: { type: "boolean", description: "Whether the time is billable (required)" },
           },
-          required: ["id"],
+          required: ["id", "billable"],
         },
       },
       handler: async (args) => {
-        const id = args.id as number;
-        return jsonResult(await client.patch(`/ticket_timers/${id}`));
+        const id = requireId(args.id);
+        if (typeof args.billable !== "boolean") throw new Error("billable must be true or false");
+        return jsonResult(await client.patch(`/ticket_timers/${id}`, { billable: args.billable }));
       },
     },
     {
@@ -100,5 +171,5 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
     },
   ];
 
-  return { name: "time", description: "Ticket timers and employee time logs", getTools: () => tools };
+  return { name: "time", description: "Ticket timers (start, pause, stop, billable) and employee time logs", getTools: () => tools };
 }
