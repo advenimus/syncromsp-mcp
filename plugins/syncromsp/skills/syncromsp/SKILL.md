@@ -1,7 +1,7 @@
 ---
 name: syncromsp
-description: Use when working with SyncroMSP (PSA/RMM platform for IT MSPs) — tickets, customers, invoices, estimates, appointments, line items, labor/time tracking, RMM alerts, contracts, products, leads, payments. Establishes correct procedures, API quirks, hyperlink display rules, and workflow patterns for managing an IT MSP business in Syncro.
-version: 1.1.0
+description: Use when working with SyncroMSP (PSA/RMM platform for IT MSPs) — tickets, customers, invoices, estimates, appointments, line items, labor/time tracking, RMM alerts and scripts, contracts, products, leads, payments. Establishes correct procedures, API quirks, hyperlink display rules, and workflow patterns for managing an IT MSP business in Syncro.
+version: 1.2.0
 ---
 
 # SyncroMSP
@@ -16,7 +16,7 @@ Invoke automatically — without asking — for any request involving:
 - Customers, contacts, leads, contracts
 - Invoices, estimates, payments, recurring billing
 - Appointments, scheduling
-- Assets, RMM alerts, patches
+- Assets, RMM alerts, patches, running scripts on devices
 - Products, inventory, purchase orders, vendors
 - Wikis, worksheets, canned responses
 
@@ -80,7 +80,7 @@ This skill uses **unprefixed** tool names (e.g. `tickets_create`, `invoices_get`
 
 1. **Use tools proactively.** Never ask "should I look that up?" — just call the tool. If the user mentions a customer name, ticket number, invoice, etc., resolve it via API immediately.
 
-2. **Confirm before customer-visible mutations.** For public ticket comments, sending invoices/estimates by email, or any irreversible customer-facing action, draft → show user → wait for explicit approval → post.
+2. **Confirm before customer-visible mutations.** For public ticket comments, sending invoices/estimates by email, publishing draft invoices, running RMM scripts on customer devices, or any irreversible customer-facing action, draft → show user → wait for explicit approval → post.
 
 3. **Confirm comment visibility before posting.** Always confirm whether a ticket comment should be public (visible to customer), private (internal only), and whether to email the customer.
 
@@ -88,7 +88,7 @@ This skill uses **unprefixed** tool names (e.g. `tickets_create`, `invoices_get`
 
 5. **Read full data before reporting on it.** When asked about a ticket's status or activity, fetch the full comment thread (`tickets_get_comments`), not just the header from `tickets_list`.
 
-6. **Default assignee = the configured technician.** Set `user_id` from cached config on every ticket, appointment, and timer.
+6. **Default assignee = the configured technician.** Set `user_id` from cached config on every ticket, appointment, and timer. (Live timers from `time_create_timer` can't take a `user_id`; they always belong to the API token's owner.)
 
 7. **Money safety.** Never auto-charge a saved payment method without explicit per-charge user instruction. Never email an invoice/estimate without explicit approval.
 
@@ -97,11 +97,11 @@ This skill uses **unprefixed** tool names (e.g. `tickets_create`, `invoices_get`
 For domain-specific procedures, read the relevant reference file at the start of related work:
 
 - **`references/tickets.md`** — Ticket creation, statuses, comments, problem types
-- **`references/time-tracking.md`** — Labor logging (timer + charge_timer two-step), labor product selection
-- **`references/billing.md`** — Invoices, estimates, payments, recurring billing, line items
+- **`references/time-tracking.md`** — Labor logging (timer + charge_timer two-step), live start/pause/stop timers, labor product selection
+- **`references/billing.md`** — Invoices, draft/publish, estimates, payments, recurring billing and schedule line item types, line items
 - **`references/appointments.md`** — Scheduling, appointment types, calendar workflows
 - **`references/customers.md`** — Customers, contacts, leads, contracts
-- **`references/rmm-and-assets.md`** — Assets, RMM alerts, patches
+- **`references/rmm-and-assets.md`** — Assets, RMM alerts, patches, running scripts, vendors and purchase orders
 - **`references/api-quirks.md`** — Known API gotchas and workarounds (read this when something behaves unexpectedly)
 
 ## Self-evolution
