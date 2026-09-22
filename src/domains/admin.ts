@@ -2,6 +2,7 @@ import type { SyncroApiClient } from "../api-client.js";
 import type { DomainHandler, DomainTool } from "../types.js";
 import { jsonResult, textResult } from "../types.js";
 import { requireId, requireString, optionalString, optionalNumber, optionalBoolean, optionalId, pickDefined } from "../utils/validators.js";
+import { createPurchaseOrderTools } from "./purchase-orders.js";
 
 export function createDomain(client: SyncroApiClient): DomainHandler {
   const tools: DomainTool[] = [
@@ -660,110 +661,7 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
       },
     },
     // === Purchase Orders ===
-    {
-      definition: {
-        name: "admin_list_purchase_orders",
-        description: "List purchase orders",
-        inputSchema: {
-          type: "object" as const,
-          properties: { page: { type: "number", description: "Page number" } },
-        },
-      },
-      handler: async (args) => {
-        const params = pickDefined({ page: optionalNumber(args.page) });
-        return jsonResult(await client.get("/purchase_orders", params as Record<string, string | number | boolean>));
-      },
-    },
-    {
-      definition: {
-        name: "admin_get_purchase_order",
-        description: "Get a purchase order by ID",
-        inputSchema: {
-          type: "object" as const,
-          properties: { id: { type: "number", description: "PO ID" } },
-          required: ["id"],
-        },
-      },
-      handler: async (args) => jsonResult(await client.get(`/purchase_orders/${requireId(args.id)}`)),
-    },
-    {
-      definition: {
-        name: "admin_create_purchase_order",
-        description: "Create a purchase order",
-        inputSchema: {
-          type: "object" as const,
-          properties: {
-            vendor_id: { type: "number", description: "Vendor ID (required)" },
-            user_id: { type: "number", description: "User ID" },
-            location_id: { type: "number", description: "Location ID" },
-            expected_date: { type: "string", description: "Expected delivery date" },
-            due_date: { type: "string", description: "Due date" },
-            order_date: { type: "string", description: "Order date" },
-            paid_date: { type: "string", description: "Paid date" },
-            general_notes: { type: "string", description: "Notes" },
-            shipping_notes: { type: "string", description: "Shipping notes" },
-            shipping_cents: { type: "number", description: "Shipping cost in cents" },
-            other_cents: { type: "number", description: "Other costs in cents" },
-            discount_percent: { type: "number", description: "Discount %" },
-            delivery_tracking: { type: "string", description: "Tracking number" },
-          },
-          required: ["vendor_id"],
-        },
-      },
-      handler: async (args) => {
-        const body = pickDefined({
-          vendor_id: requireId(args.vendor_id, "vendor_id"),
-          user_id: optionalId(args.user_id), location_id: optionalId(args.location_id),
-          expected_date: optionalString(args.expected_date), due_date: optionalString(args.due_date),
-          order_date: optionalString(args.order_date), paid_date: optionalString(args.paid_date),
-          general_notes: optionalString(args.general_notes), shipping_notes: optionalString(args.shipping_notes),
-          shipping_cents: optionalNumber(args.shipping_cents), other_cents: optionalNumber(args.other_cents),
-          discount_percent: optionalNumber(args.discount_percent),
-          delivery_tracking: optionalString(args.delivery_tracking),
-        });
-        return jsonResult(await client.post("/purchase_orders", body));
-      },
-    },
-    {
-      definition: {
-        name: "admin_receive_purchase_order",
-        description: "Receive a line item on a purchase order",
-        inputSchema: {
-          type: "object" as const,
-          properties: {
-            id: { type: "number", description: "PO ID" },
-            line_item_id: { type: "number", description: "Line item ID to receive" },
-          },
-          required: ["id", "line_item_id"],
-        },
-      },
-      handler: async (args) => {
-        const id = requireId(args.id);
-        return jsonResult(await client.post(`/purchase_orders/${id}/receive`, { line_item_id: requireId(args.line_item_id, "line_item_id") }));
-      },
-    },
-    {
-      definition: {
-        name: "admin_add_po_line_item",
-        description: "Add a line item to a purchase order. Note: the product must have maintain_stock=true or the API returns 422.",
-        inputSchema: {
-          type: "object" as const,
-          properties: {
-            id: { type: "number", description: "PO ID" },
-            product_id: { type: "number", description: "Product ID" },
-            quantity: { type: "number", description: "Quantity" },
-          },
-          required: ["id", "product_id", "quantity"],
-        },
-      },
-      handler: async (args) => {
-        const id = requireId(args.id);
-        return jsonResult(await client.post(`/purchase_orders/${id}/create_po_line_item`, {
-          product_id: requireId(args.product_id, "product_id"),
-          quantity: args.quantity as number,
-        }));
-      },
-    },
+    ...createPurchaseOrderTools(client),
     // === Items & Line Items ===
     {
       definition: {

@@ -346,6 +346,28 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
         return jsonResult(await client.put(`/products/${pid}/product_skus/${id}`, body));
       },
     },
+    {
+      definition: {
+        name: "products_delete_sku",
+        description: "DELETE a product SKU. The user MUST confirm.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            product_id: { type: "number", description: "Product ID" },
+            id: { type: "number", description: "SKU ID" },
+            confirmed: { type: "boolean", description: "Must be true" },
+          },
+          required: ["product_id", "id", "confirmed"],
+        },
+      },
+      handler: async (args) => {
+        const pid = requireId(args.product_id, "product_id");
+        const id = requireId(args.id);
+        if (args.confirmed !== true) return textResult(`⚠️ CONFIRMATION REQUIRED: Delete SKU #${id} from product #${pid}? Call again with confirmed: true.`);
+        const result = await client.delete(`/products/${pid}/product_skus/${id}`);
+        return result ? jsonResult(result) : textResult(`SKU #${id} deleted from product #${pid}.`);
+      },
+    },
   ];
 
   return { name: "products", description: "Products, serials, SKUs, categories, images, inventory", getTools: () => tools };

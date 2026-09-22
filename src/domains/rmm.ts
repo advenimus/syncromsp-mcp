@@ -101,7 +101,49 @@ export function createDomain(client: SyncroApiClient): DomainHandler {
         return result ? jsonResult(result) : textResult(`RMM alert #${id} deleted.`);
       },
     },
+    {
+      definition: {
+        name: "rmm_schedule_script",
+        description: "Run an RMM script on one asset, now or once at a later time. Recurring schedules are not allowed through the API. No API lists scripts, so get script_id from the script's page in Syncro. This runs code on a customer machine: the user MUST confirm.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            asset_id: { type: "number", description: "Asset ID to run the script on" },
+            script_id: { type: "number", description: "Script ID" },
+            run_type: { type: "string", enum: ["now", "later"], description: "'now' runs right away; 'later' runs once at next_time" },
+            next_time: { type: "string", description: "When to run (ISO 8601). Required when run_type is 'later'." },
+            run_as: { type: "string", description: "Run-as option for the script, as offered in Syncro" },
+            runtime_variables: { type: "object", description: "Values for the script's runtime variables, keyed by variable name" },
+            mav_options: { type: "object", description: "Malwarebytes scan options: scan_type (string), silent (boolean), quarantine (boolean)" },
+            confirmed: { type: "boolean", description: "Must be true" },
+          },
+          required: ["asset_id", "script_id", "run_type", "confirmed"],
+        },
+      },
+      handler: async (args) => {
+        const assetId = requireId(args.asset_id, "asset_id");
+        const scriptId = requireId(args.script_id, "script_id");
+        const runType = optionalString(args.run_type);
+        if (runType !== "now" && runType !== "later") throw new Error("run_type must be 'now' or 'later'");
+        const nextTime = optionalString(args.next_time);
+        if (runType === "later" && !nextTime) throw new Error("next_time is required when run_type is 'later'");
+        if (args.confirmed !== true) {
+          const when = runType === "now" ? "now" : `at ${nextTime}`;
+          return textResult(`⚠️ CONFIRMATION REQUIRED: Run script #${scriptId} on asset #${assetId} ${when}? Call again with confirmed: true.`);
+        }
+        const scriptOptions = pickDefined({ run_as: optionalString(args.run_as), runtime_variables: args.runtime_variables });
+        const body = pickDefined({
+          script_id: scriptId,
+          run_type: runType,
+          freq: "once",
+          next_time: runType === "later" ? nextTime : undefined,
+          script_options: Object.keys(scriptOptions).length > 0 ? scriptOptions : undefined,
+          mav_options: args.mav_options,
+        });
+        return jsonResult(await client.post(`/rmm/public_scripts/${assetId}/schedule`, body));
+      },
+    },
   ];
 
-  return { name: "rmm", description: "RMM alerts", getTools: () => tools };
+  return { name: "rmm", description: "RMM alerts and script runs", getTools: () => tools };
 }

@@ -4,11 +4,11 @@ A fully-featured [Model Context Protocol](https://modelcontextprotocol.io) serve
 
 ## Features
 
-- **180+ API endpoints** across 16 domains
+- **190 tools** across 16 domains, covering every current endpoint in Syncro's API docs
 - **Full CRUD** for tickets, customers, invoices, estimates, appointments, contracts, products, and more
 - **Ticket comments** — email replies, public notes, and private/internal notes
 - **Line items** — add products from catalog or manual entries to tickets, invoices, estimates, schedules
-- **RMM alerts** — create, read, mute, resolve alerts on assets
+- **RMM** — create, read, mute, resolve alerts on assets; run scripts on an asset now or once later
 - **Rate limiting** — built-in 180 req/min token bucket (Syncro API limit)
 - **Confirmation required** for all destructive operations (DELETE, etc.)
 - **Auto-update check** — warns on startup if a newer version is available
@@ -152,7 +152,7 @@ The container runs on port 8080 by default. You need a reverse proxy (Traefik, C
 2. Enter your MCP URL: `https://mcp.yourcompany.com/mcp`
 3. Claude.ai will auto-discover the OAuth endpoints
 4. A login page appears — enter the `MCP_AUTH_SECRET` you configured in Step 1
-5. Once authenticated, Claude.ai connects and all 170 tools become available
+5. Once authenticated, Claude.ai connects and all 190 tools become available
 
 ### How Authentication Works
 
@@ -288,19 +288,19 @@ MCP_AUTH=false MCP_I_UNDERSTAND_INSECURE=true docker compose up -d
 |--------|-------------|---------------|
 | **tickets** | Service tickets | CRUD, comments (email/public/private), cross-ticket comment feed, line items, timers, attachments, blueprints |
 | **customers** | Customer records | CRUD, phone numbers, autocomplete |
-| **assets** | Customer assets | CRUD, patches, installed applications, policy folder assignment, properties (OS, RAM, HDD, etc.) |
+| **assets** | Customer assets | CRUD, list by contact, patches, installed applications, policy folder assignment, properties (OS, RAM, HDD, etc.) |
 | **contacts** | Customer contacts | CRUD |
-| **invoices** | Invoices | CRUD, line items (manual + product catalog), print, email |
+| **invoices** | Invoices | CRUD, line items (manual + product catalog), print, email, publish draft / convert to draft |
 | **estimates** | Estimates/quotes | CRUD, line items, print, email, convert to invoice |
 | **appointments** | Calendar appointments | CRUD, appointment types, ticket linking |
-| **products** | Inventory/products | CRUD, serials, SKUs, categories, images |
+| **products** | Inventory/products | CRUD, serials, SKUs (incl. delete), categories, images |
 | **payments** | Payment records | Create, read, multi-invoice distribution |
 | **leads** | Leads/opportunities | Create, read, update |
 | **contracts** | Service contracts | CRUD |
-| **rmm** | RMM alerts | Create, read, mute, resolve |
-| **scheduling** | Recurring invoices | CRUD, schedule line items |
-| **time** | Timers and time logs | List, update |
-| **admin** | Search, users, vendors, wiki, portal, settings, purchase orders, and more | Various |
+| **rmm** | RMM alerts and scripts | Create, read, mute, resolve alerts; run a script on an asset (confirmation required) |
+| **scheduling** | Recurring invoices | CRUD, schedule line items (incl. asset, contact, policy folder, vendor, and backup line types) |
+| **time** | Timers and time logs | Start, pause, resume, stop live ticket timers; set billable; list and edit time logs |
+| **admin** | Search, users, vendors, wiki, portal, settings, purchase orders, and more | Various, incl. PO update and file attachments |
 | **policies** | Policy folders (Syncro accounts only) | List, get, create, update, delete folders; assign assets via `assets_update` |
 
 ---
