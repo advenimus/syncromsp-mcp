@@ -114,8 +114,9 @@ if (transport === "http") {
     );
   }
 
-  const idleMinutes = Number(process.env.MCP_SESSION_IDLE_MINUTES || "60");
-  if (!Number.isFinite(idleMinutes) || idleMinutes <= 0) {
+  const idleMinutesRaw = process.env.MCP_SESSION_IDLE_MINUTES;
+  const idleMinutes = idleMinutesRaw ? Number(idleMinutesRaw) : undefined;
+  if (idleMinutes !== undefined && !(Number.isFinite(idleMinutes) && idleMinutes > 0)) {
     console.error("ERROR: MCP_SESSION_IDLE_MINUTES must be a positive number.");
     process.exit(1);
   }
@@ -123,7 +124,7 @@ if (transport === "http") {
   const { app, shutdown: shutdownApp } = createHttpApp(client, {
     toolMode,
     authMiddleware,
-    idleTimeoutMs: idleMinutes * 60 * 1000,
+    idleTimeoutMs: idleMinutes !== undefined ? idleMinutes * 60 * 1000 : undefined,
     preMcpRouteInstaller: oauthInstaller,
   });
 

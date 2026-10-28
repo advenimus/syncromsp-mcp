@@ -2,7 +2,11 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import type { AddressInfo } from "node:net";
 import type { Server as HttpServer } from "node:http";
 import { SyncroApiClient } from "../src/api-client.js";
-import { createHttpApp, type HttpAppHandle } from "../src/http-app.js";
+import {
+  createHttpApp,
+  MIN_EVICTION_IDLE_MS,
+  type HttpAppHandle,
+} from "../src/http-app.js";
 
 /**
  * Tests for the HTTP transport layer (src/http-app.ts).
@@ -278,6 +282,28 @@ describe("createHttpApp — idle session cleanup", () => {
     return res;
   }
 
+  async function openStream(sid: string) {
+    const controller = new AbortController();
+    const stream = await fetch(`${url}/mcp`, {
+      method: "GET",
+      headers: {
+        accept: "text/event-stream",
+        "mcp-session-id": sid,
+        "mcp-protocol-version": "2025-03-26",
+      },
+      signal: controller.signal,
+    });
+    expect(stream.status).toBe(200);
+    return { controller, stream };
+  }
+
+  function backdate(sid: string, ageMs: number) {
+    handle.sessions[sid] = {
+      ...handle.sessions[sid]!,
+      lastActivity: Date.now() - ageMs,
+    };
+  }
+
   async function start(maxSessions?: number) {
     handle = createHttpApp(makeClient(), {
       toolMode: "flat",
@@ -291,6 +317,7 @@ describe("createHttpApp — idle session cleanup", () => {
 
   afterEach(async () => {
     handle.shutdown();
+    server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
@@ -324,6 +351,23 @@ describe("createHttpApp — idle session cleanup", () => {
     expect(handle.sessions[sid]!.lastActivity).toBeGreaterThan(openedAt);
   });
 
+  it("keeps a session with an open event stream, then sweeps it once the stream ends", async () => {
+    await start();
+    const sid = await openSession();
+    const { controller, stream } = await openStream(sid);
+
+    handle.sweepIdleSessions(Date.now() + IDLE_MS + 1000);
+    expect(Object.keys(handle.sessions)).toContain(sid);
+
+    controller.abort();
+    await stream.body?.cancel().catch(() => {});
+    await new Promise((r) => setTimeout(r, 20));
+    expect(handle.sessions[sid]!.openRequests).toBe(0);
+
+    handle.sweepIdleSessions(Date.now() + IDLE_MS + 1000);
+    expect(Object.keys(handle.sessions)).not.toContain(sid);
+  });
+
   it("returns 404 for an unknown session so the client starts a new one", async () => {
     await start();
     const sid = await openSession();
@@ -334,12 +378,12 @@ describe("createHttpApp — idle session cleanup", () => {
     expect(res.status).toBe(404);
   });
 
-  it("evicts the least recently used session instead of rejecting at the cap", async () => {
+  it("evicts the least recently used idle session at the cap", async () => {
     await start(2);
     const first = await openSession();
     const second = await openSession();
-    await new Promise((r) => setTimeout(r, 5));
-    await ping(first);
+    backdate(first, MIN_EVICTION_IDLE_MS + 60_000);
+    backdate(second, MIN_EVICTION_IDLE_MS + 120_000);
 
     const third = await openSession();
 
@@ -348,5 +392,29 @@ describe("createHttpApp — idle session cleanup", () => {
     expect(ids).toContain(first);
     expect(ids).toContain(third);
     expect(ids).not.toContain(second);
+  });
+
+  it("returns 503 at the cap when every session is busy or recently active", async () => {
+    await start(2);
+    const busy = await openSession();
+    const recent = await openSession();
+    const { controller, stream } = await openStream(busy);
+    backdate(busy, MIN_EVICTION_IDLE_MS + 60_000);
+
+    const res = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify(initBody),
+    });
+    await res.text();
+
+    expect(res.status).toBe(503);
+    expect(Object.keys(handle.sessions).sort()).toEqual([busy, recent].sort());
+
+    controller.abort();
+    await stream.body?.cancel().catch(() => {});
   });
 });

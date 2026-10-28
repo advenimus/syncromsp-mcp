@@ -13,6 +13,7 @@ import { createServer, type ToolMode } from "./server.js";
 export const DEFAULT_MAX_SESSIONS = 1000;
 export const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 export const DEFAULT_SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+export const MIN_EVICTION_IDLE_MS = 5 * 60 * 1000;
 
 export interface HttpAppOptions {
   toolMode: ToolMode;
@@ -32,6 +33,7 @@ interface SessionEntry {
   transport: InstanceType<typeof StreamableHTTPServerTransport>;
   server: ReturnType<typeof createServer>;
   lastActivity: number;
+  openRequests: number;
 }
 
 export interface HttpAppHandle {
@@ -57,6 +59,10 @@ export function createHttpApp(
     sweepIntervalMs = DEFAULT_SESSION_SWEEP_INTERVAL_MS,
     preMcpRouteInstaller,
   } = options;
+
+  if (!(idleTimeoutMs > 0) || !(sweepIntervalMs > 0)) {
+    throw new Error("idleTimeoutMs and sweepIntervalMs must be positive numbers");
+  }
 
   const app = express();
 
@@ -114,10 +120,14 @@ export function createHttpApp(
     });
   };
 
+  // A session with an open request (e.g. a GET event stream) is in use
+  // no matter how long ago that request started.
+  const isBusy = (entry: SessionEntry) => entry.openRequests > 0;
+
   const sweepIdleSessions = (now: number = Date.now()) => {
     const cutoff = now - idleTimeoutMs;
     const idle = Object.entries(sessions)
-      .filter(([, entry]) => entry.lastActivity < cutoff)
+      .filter(([, entry]) => !isBusy(entry) && entry.lastActivity < cutoff)
       .map(([sid]) => sid);
     idle.forEach(closeSession);
     if (idle.length > 0) {
@@ -125,17 +135,53 @@ export function createHttpApp(
     }
   };
 
-  const evictLeastRecentlyUsed = () => {
-    const oldest = Object.entries(sessions).reduce<[string, SessionEntry] | undefined>(
-      (acc, cur) => (!acc || cur[1].lastActivity < acc[1].lastActivity ? cur : acc),
-      undefined
+  // Only sessions quiet for a while are fair game, so a burst of new
+  // connections can't kick out someone mid-conversation.
+  const evictLeastRecentlyUsed = (now: number = Date.now()): boolean => {
+    const cutoff = now - MIN_EVICTION_IDLE_MS;
+    const oldest = Object.entries(sessions)
+      .filter(([, entry]) => !isBusy(entry) && entry.lastActivity <= cutoff)
+      .reduce<[string, SessionEntry] | undefined>(
+        (acc, cur) => (!acc || cur[1].lastActivity < acc[1].lastActivity ? cur : acc),
+        undefined
+      );
+    if (!oldest) return false;
+    console.error(
+      `Session cap reached (${maxSessions}); evicting least recently used session`
     );
-    if (oldest) closeSession(oldest[0]);
+    closeSession(oldest[0]);
+    return true;
   };
 
-  const touch = (sid: string) => {
+  const hasRoomForNewSession = (): boolean => {
+    const count = () => Object.keys(sessions).length;
+    if (count() < maxSessions) return true;
+    sweepIdleSessions();
+    if (count() >= maxSessions && maxSessions > 0) {
+      evictLeastRecentlyUsed();
+    }
+    return count() < maxSessions;
+  };
+
+  const updateSession = (
+    sid: string,
+    update: (entry: SessionEntry) => Partial<SessionEntry>
+  ) => {
     const entry = sessions[sid];
-    if (entry) sessions[sid] = { ...entry, lastActivity: Date.now() };
+    if (entry) sessions[sid] = { ...entry, ...update(entry) };
+  };
+
+  const trackRequest = (sid: string, res: Response) => {
+    updateSession(sid, (e) => ({
+      lastActivity: Date.now(),
+      openRequests: e.openRequests + 1,
+    }));
+    res.on("close", () =>
+      updateSession(sid, (e) => ({
+        lastActivity: Date.now(),
+        openRequests: Math.max(0, e.openRequests - 1),
+      }))
+    );
   };
 
   const mcpHandler = async (req: Request, res: Response) => {
@@ -143,9 +189,7 @@ export function createHttpApp(
 
     try {
       if (sessionId && sessions[sessionId]) {
-        touch(sessionId);
-        // Long-lived GET streams count as activity until they end.
-        res.on("close", () => touch(sessionId));
+        trackRequest(sessionId, res);
         await sessions[sessionId].transport.handleRequest(req, res, req.body);
         return;
       }
@@ -161,16 +205,7 @@ export function createHttpApp(
       }
 
       if (isInitializeRequest(req.body)) {
-        if (Object.keys(sessions).length >= maxSessions) {
-          sweepIdleSessions();
-        }
-        if (Object.keys(sessions).length >= maxSessions && maxSessions > 0) {
-          console.error(
-            `Session cap reached (${maxSessions}); evicting least recently used session`
-          );
-          evictLeastRecentlyUsed();
-        }
-        if (Object.keys(sessions).length >= maxSessions) {
+        if (!hasRoomForNewSession()) {
           console.error(
             `Session cap reached (${maxSessions}); rejecting new session`
           );
@@ -187,6 +222,7 @@ export function createHttpApp(
               transport: sessionTransport,
               server: sessionServer,
               lastActivity: Date.now(),
+              openRequests: 0,
             };
           },
         });
@@ -222,8 +258,8 @@ export function createHttpApp(
     app.delete("/mcp", mcpHandler);
   }
 
-  // Periodic session-count logging. .unref() so the timer doesn't keep the
-  // process alive on its own; clearInterval on shutdown for tidiness.
+  // .unref() so the timers don't keep the process alive on their own;
+  // clearInterval on shutdown for tidiness.
   const sweepInterval = setInterval(() => sweepIdleSessions(), sweepIntervalMs);
   sweepInterval.unref();
 
