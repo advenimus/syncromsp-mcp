@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server as HttpServer } from "node:http";
 import { SyncroApiClient } from "../src/api-client.js";
@@ -226,5 +226,127 @@ describe("createHttpApp — session cap", () => {
 
     handle.shutdown();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+});
+
+describe("createHttpApp — idle session cleanup", () => {
+  let handle: HttpAppHandle;
+  let server: HttpServer;
+  let url: string;
+
+  const IDLE_MS = 60 * 60 * 1000;
+
+  const initBody = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-03-26",
+      capabilities: {},
+      clientInfo: { name: "test", version: "0.0.0" },
+    },
+  };
+
+  async function openSession(): Promise<string> {
+    const res = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify(initBody),
+    });
+    expect(res.status).toBe(200);
+    await res.text();
+    const sid = res.headers.get("mcp-session-id");
+    expect(sid).toBeTruthy();
+    return sid!;
+  }
+
+  async function ping(sid: string): Promise<Response> {
+    const res = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-session-id": sid,
+        "mcp-protocol-version": "2025-03-26",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" }),
+    });
+    await res.text();
+    return res;
+  }
+
+  async function start(maxSessions?: number) {
+    handle = createHttpApp(makeClient(), {
+      toolMode: "flat",
+      idleTimeoutMs: IDLE_MS,
+      ...(maxSessions !== undefined ? { maxSessions } : {}),
+    });
+    const started = await listen(handle);
+    server = started.server;
+    url = started.url;
+  }
+
+  afterEach(async () => {
+    handle.shutdown();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it("removes sessions that have been idle longer than the timeout", async () => {
+    await start();
+    const sid = await openSession();
+    expect(Object.keys(handle.sessions)).toContain(sid);
+
+    handle.sweepIdleSessions(Date.now() + IDLE_MS + 1000);
+
+    expect(Object.keys(handle.sessions)).not.toContain(sid);
+  });
+
+  it("keeps sessions that are still within the timeout", async () => {
+    await start();
+    const sid = await openSession();
+
+    handle.sweepIdleSessions(Date.now() + IDLE_MS - 60_000);
+
+    expect(Object.keys(handle.sessions)).toContain(sid);
+  });
+
+  it("counts each request as activity, pushing back the idle deadline", async () => {
+    await start();
+    const sid = await openSession();
+    const openedAt = handle.sessions[sid]!.lastActivity;
+
+    await new Promise((r) => setTimeout(r, 5));
+    expect((await ping(sid)).status).toBe(200);
+
+    expect(handle.sessions[sid]!.lastActivity).toBeGreaterThan(openedAt);
+  });
+
+  it("returns 404 for an unknown session so the client starts a new one", async () => {
+    await start();
+    const sid = await openSession();
+    handle.sweepIdleSessions(Date.now() + IDLE_MS + 1000);
+
+    const res = await ping(sid);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("evicts the least recently used session instead of rejecting at the cap", async () => {
+    await start(2);
+    const first = await openSession();
+    const second = await openSession();
+    await new Promise((r) => setTimeout(r, 5));
+    await ping(first);
+
+    const third = await openSession();
+
+    const ids = Object.keys(handle.sessions);
+    expect(ids).toHaveLength(2);
+    expect(ids).toContain(first);
+    expect(ids).toContain(third);
+    expect(ids).not.toContain(second);
   });
 });
