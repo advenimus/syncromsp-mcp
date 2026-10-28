@@ -111,7 +111,7 @@ Restart Claude Desktop after saving. The server updates automatically via npx on
 
 ## Docker Deployment (Remote MCP)
 
-Deploy as a Docker container for remote access from Claude.ai, shared team usage, or running on a server. Includes built-in OAuth 2.1 authentication so only authorized users can connect.
+Deploy as a Docker container for remote access from Claude.ai, shared team usage, or running on a server. Each person signs in with **their own Syncro API key**, so every action in Syncro is made as that person, with that key's permissions. There is no shared password and no server-wide Syncro key.
 
 ### Step 1: Clone and Configure
 
@@ -124,19 +124,22 @@ cp .env.example .env
 Edit `.env` with your settings:
 
 ```bash
-# Required: Syncro credentials
-SYNCRO_API_KEY=your-api-key
-SYNCRO_SUBDOMAIN=your-subdomain
-
 # Required: The public URL where this server will be reachable
 # Must be HTTPS for production (put behind Traefik, Caddy, nginx, etc.)
 MCP_BASE_URL=https://mcp.yourcompany.com
 
-# Required: Access key that users must enter to authorize connections.
-# Minimum 32 characters; the server refuses to start on weak/default values.
+# Required: 32 random bytes that encrypt every sign-in token.
 # Generate with: openssl rand -hex 32
-MCP_AUTH_SECRET=
+# Keep it secret and keep it stable: changing it signs everyone out.
+MCP_TOKEN_ENCRYPTION_KEY=
+
+# Required: which Syncro accounts may sign in. Set ONE of these three.
+SYNCRO_SUBDOMAIN=yourcompany              # lock sign-in to one account
+# MCP_ALLOWED_SUBDOMAINS=acme,beta         # or allow a list of accounts
+# MCP_ALLOW_ANY_SUBDOMAIN=true             # or allow any Syncro account
 ```
+
+Do **not** set `SYNCRO_API_KEY` for this setup. It is ignored in HTTP sign-in mode.
 
 ### Step 2: Deploy
 
@@ -148,32 +151,52 @@ The container runs on port 8080 by default. You need a reverse proxy (Traefik, C
 
 ### Step 3: Connect from Claude.ai
 
-1. In Claude.ai, go to **Settings** > **MCP Servers** > **Add Remote Server**
-2. Enter your MCP URL: `https://mcp.yourcompany.com/mcp`
-3. Claude.ai will auto-discover the OAuth endpoints
-4. A login page appears — enter the `MCP_AUTH_SECRET` you configured in Step 1
-5. Once authenticated, Claude.ai connects and all 190 tools become available
+1. In Syncro, create an API token for yourself under **Admin** > **API Tokens**. Its permissions decide what Claude can do.
+2. In Claude.ai, go to **Settings** > **MCP Servers** > **Add Remote Server**
+3. Enter your MCP URL: `https://mcp.yourcompany.com/mcp`
+4. Claude.ai will auto-discover the OAuth endpoints
+5. A sign-in page appears. Enter your Syncro subdomain (unless the server is locked to one) and your API key.
+6. The server checks the key with Syncro. If Syncro accepts it, Claude.ai connects and all tools become available.
 
-### How Authentication Works
+Each teammate repeats steps 1 to 6 with their own key.
 
-The server implements the [MCP OAuth 2.1 + PKCE](https://spec.modelcontextprotocol.io) spec with an access key gate:
+### How Sign-in Works
+
+The server implements the [MCP OAuth 2.1 + PKCE](https://spec.modelcontextprotocol.io) spec. The login step is your own Syncro key:
 
 ```
 Client connects → 401 Unauthorized
   → Client discovers /.well-known/oauth-authorization-server
   → Client dynamically registers (RFC 7591)
   → Client redirects user to /authorize
-  → User sees login page, enters MCP_AUTH_SECRET
-  → Correct key: auth code issued → token granted → MCP access
-  → Wrong key: 403 Access Denied, connection rejected
+  → User enters Syncro subdomain + API key
+  → Server calls https://<subdomain>.syncromsp.com/api/v1/me with that key (5 second timeout)
+  → Syncro says OK: auth code issued → tokens granted → MCP access
+  → Anything else: one generic "Sign-in failed" message, nothing issued
 ```
 
-- Tokens are validated on every MCP request via bearer auth
-- Access tokens expire after 24 hours; refresh tokens rotate on every use and last 30 days
-- Access tokens and refresh tokens carry a type discriminator — a refresh token cannot be used as a bearer, and an access token cannot be exchanged at the token endpoint
-- Timing-safe secret comparison prevents side-channel attacks
-- Server **refuses to start** if `MCP_AUTH_SECRET` is missing, shorter than 32 characters, or matches a known weak default (`change-me`, `password`, `secret`, etc.)
-- Consent page displays the registered `redirect_uri` so users can verify the destination before authorizing (anti-phishing)
+- **No credential database.** Your subdomain and key live only inside your tokens, which are encrypted and signed with AES-256-GCM using `MCP_TOKEN_ENCRYPTION_KEY`. The server stores nothing on disk.
+- **Sign-ins survive restarts.** Tokens and client registrations are self-contained encrypted blobs, so a restart or redeploy does not sign anyone out (as long as `MCP_TOKEN_ENCRYPTION_KEY` stays the same).
+- **Each session uses its owner's key.** A session is bound to the key that opened it. Another user presenting that session id gets a 404.
+- Access tokens last 1 hour. Refresh tokens last 30 days and are replaced on every use. Reusing an old refresh token cancels that whole sign-in.
+- The subdomain must be a plain name like `mycompany`. The server always builds `https://<subdomain>.syncromsp.com` itself, so it cannot be pointed at another host.
+- Sign-in attempts are limited to 5 per IP address per 15 minutes.
+- The key is never put in a URL, a log line, or an error message.
+- The sign-in page shows the `redirect_uri` so users can check where they will be sent (anti-phishing).
+
+### Signing out and revoking access
+
+- **To cut off a key for sure, delete it in Syncro** (Admin > API Tokens). Every token that carries it stops working at Syncro right away. This is the real kill switch.
+- Claude.ai's "disconnect" calls the revoke endpoint. Revoked tokens are remembered in memory until they expire. That memory resets when the server restarts, so a restart re-enables a revoked token that has not expired yet. If that matters, delete the key in Syncro.
+
+### Rotating the encryption key
+
+1. Generate a new key: `openssl rand -hex 32`
+2. Move the current value to `MCP_TOKEN_ENCRYPTION_KEY_PREVIOUS` and put the new one in `MCP_TOKEN_ENCRYPTION_KEY`. Restart.
+3. Existing sign-ins keep working. New and refreshed tokens use the new key.
+4. After 30 days (the refresh token lifetime), remove `MCP_TOKEN_ENCRYPTION_KEY_PREVIOUS` and restart. Client registrations are sealed with the key too, so a client that registered before the rotation (for example a Claude.ai connector) may then need to be removed and re-added.
+
+If the key may have leaked, do not keep it as the previous key: just replace it. Everyone has to sign in again, and Claude.ai may need the connector removed and re-added. Also ask users to delete and re-create their Syncro API keys, because a leaked encryption key plus a captured token reveals the Syncro key inside.
 
 For the full threat model, defense layers, and operator responsibilities, see [SECURITY.md](SECURITY.md).
 
@@ -186,12 +209,11 @@ services:
     container_name: syncromsp-mcp
     restart: unless-stopped
     environment:
-      - SYNCRO_API_KEY=${SYNCRO_API_KEY}
-      - SYNCRO_SUBDOMAIN=${SYNCRO_SUBDOMAIN}
       - MCP_TRANSPORT=http
       - MCP_PORT=8080
       - MCP_BASE_URL=https://mcp.yourcompany.com
-      - MCP_AUTH_SECRET=${MCP_AUTH_SECRET}
+      - MCP_TOKEN_ENCRYPTION_KEY=${MCP_TOKEN_ENCRYPTION_KEY}
+      - SYNCRO_SUBDOMAIN=${SYNCRO_SUBDOMAIN}
     # Container hardening — recommended for any public-facing deployment
     read_only: true
     cap_drop:
@@ -217,11 +239,10 @@ services:
     container_name: syncromsp-mcp
     restart: unless-stopped
     environment:
-      - SYNCRO_API_KEY=${SYNCRO_API_KEY}
-      - SYNCRO_SUBDOMAIN=${SYNCRO_SUBDOMAIN}
       - MCP_TRANSPORT=http
       - MCP_BASE_URL=https://mcp.yourcompany.com
-      - MCP_AUTH_SECRET=${MCP_AUTH_SECRET}
+      - MCP_TOKEN_ENCRYPTION_KEY=${MCP_TOKEN_ENCRYPTION_KEY}
+      - SYNCRO_SUBDOMAIN=${SYNCRO_SUBDOMAIN}
     expose:
       - "8080"
     # Container hardening — recommended for any public-facing deployment
@@ -258,11 +279,29 @@ mcp.yourcompany.com {
 
 For testing on private networks only. The server **refuses to start** with `MCP_AUTH=false` unless you also set `MCP_I_UNDERSTAND_INSECURE=true` as an explicit foot-gun guard:
 
+In this mode there is no sign-in page, and every session uses one server-wide `SYNCRO_API_KEY`. The default `docker-compose.yml` does not pass that variable in, so add these lines under `environment:` first:
+
+```yaml
+      - SYNCRO_API_KEY=${SYNCRO_API_KEY}
+      - MCP_I_UNDERSTAND_INSECURE=${MCP_I_UNDERSTAND_INSECURE}
+```
+
+Then start it:
+
 ```bash
-MCP_AUTH=false MCP_I_UNDERSTAND_INSECURE=true docker compose up -d
+MCP_AUTH=false MCP_I_UNDERSTAND_INSECURE=true SYNCRO_API_KEY=your-key SYNCRO_SUBDOMAIN=yourcompany docker compose up -d
 ```
 
 **Warning:** Without auth, anyone who can reach the URL gets full access to your Syncro account. Never disable auth on a publicly-reachable deployment, even briefly.
+
+### Upgrading from the shared-password setup
+
+Older versions used one shared password (`MCP_AUTH_SECRET`) and one server-wide `SYNCRO_API_KEY`. To upgrade:
+
+1. Add `MCP_TOKEN_ENCRYPTION_KEY` (`openssl rand -hex 32`).
+2. Keep `SYNCRO_SUBDOMAIN` to lock sign-in to your account, or set `MCP_ALLOWED_SUBDOMAINS` / `MCP_ALLOW_ANY_SUBDOMAIN=true`.
+3. Remove `MCP_AUTH_SECRET` and `SYNCRO_API_KEY`. (If left in place they are ignored, with a warning in the log.)
+4. Restart. Everyone signs in once with their own Syncro API key. In Claude.ai you may need to remove and re-add the connector, because old client registrations were kept in memory and are gone.
 
 ---
 
@@ -270,13 +309,16 @@ MCP_AUTH=false MCP_I_UNDERSTAND_INSECURE=true docker compose up -d
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SYNCRO_API_KEY` | Yes | — | Your Syncro API token |
-| `SYNCRO_SUBDOMAIN` | Yes | — | Your Syncro subdomain |
+| `SYNCRO_API_KEY` | stdio, or HTTP with `MCP_AUTH=false` | — | Your Syncro API token. Ignored (with a warning) in HTTP sign-in mode, where each user brings their own. |
+| `SYNCRO_SUBDOMAIN` | stdio, or HTTP with `MCP_AUTH=false` | — | Your Syncro subdomain. In HTTP sign-in mode, setting it locks sign-in to that one subdomain. |
 | `MCP_TRANSPORT` | No | `stdio` | `stdio` (local) or `http` (Docker/remote) |
 | `MCP_PORT` | No | `8080` | HTTP listen port |
 | `MCP_BASE_URL` | For Docker | — | Public HTTPS URL (e.g., `https://mcp.yourcompany.com`) |
 | `MCP_AUTH` | No | `true` | `true` or `false` to disable OAuth (see foot-gun guard below) |
-| `MCP_AUTH_SECRET` | For Docker | — | Access key users enter to authorize. Minimum 32 chars; weak/default values rejected at startup. |
+| `MCP_TOKEN_ENCRYPTION_KEY` | HTTP sign-in mode | — | 32 random bytes as 64 hex chars or base64. Encrypts every token and client registration. Generate with `openssl rand -hex 32`. The server refuses to start without a valid one. |
+| `MCP_TOKEN_ENCRYPTION_KEY_PREVIOUS` | No | — | The old key during a rotation. Used only to read existing tokens, never to create new ones. |
+| `MCP_ALLOWED_SUBDOMAINS` | One of these three in HTTP sign-in mode | — | Comma list of subdomains allowed to sign in, e.g. `acme,beta`. Ignored if `SYNCRO_SUBDOMAIN` is set. |
+| `MCP_ALLOW_ANY_SUBDOMAIN` | One of these three in HTTP sign-in mode | — | Set to `true` to let any Syncro subdomain sign in. |
 | `MCP_I_UNDERSTAND_INSECURE` | If `MCP_AUTH=false` | — | Must be `true` to start the server with auth disabled. Foot-gun guard. |
 | `MCP_TOOL_MODE` | No | `flat` | `flat` (all tools) or `navigation` (lazy domains) |
 | `MCP_SESSION_IDLE_MINUTES` | No | `60` | HTTP sessions unused this long are closed (checked every 5 minutes). Clients reconnect automatically. |
