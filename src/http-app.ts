@@ -7,8 +7,16 @@ import express, {
 import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { SyncroApiClient } from "./api-client.js";
 import { createServer, type ToolMode } from "./server.js";
+import {
+  createFingerprinter,
+  credentialsFromAuth,
+  sameFingerprint,
+} from "./auth/session-credentials.js";
+import type { SyncroCredentials } from "./auth/subdomain.js";
+import { releaseDomains } from "./domains/index.js";
 
 export const DEFAULT_MAX_SESSIONS = 1000;
 export const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
@@ -34,6 +42,14 @@ interface SessionEntry {
   server: ReturnType<typeof createServer>;
   lastActivity: number;
   openRequests: number;
+  /** HMAC fingerprint of the owner's subdomain + key; null only in no-auth mode. */
+  owner: string | null;
+  client: SyncroApiClient;
+}
+
+interface Requester {
+  creds?: SyncroCredentials;
+  owner: string | null;
 }
 
 export interface HttpAppHandle {
@@ -46,9 +62,13 @@ export interface HttpAppHandle {
 /**
  * Builds and configures the Express app used for the HTTP transport.
  * Pure (no app.listen) so tests can mount it without binding a port.
+ *
+ * With authMiddleware, each session gets a Syncro client built from the
+ * caller's own credentials and `fallbackClient` is never used. Without it
+ * (MCP_AUTH=false insecure mode), every session shares `fallbackClient`.
  */
 export function createHttpApp(
-  client: SyncroApiClient,
+  fallbackClient: SyncroApiClient | null,
   options: HttpAppOptions
 ): HttpAppHandle {
   const {
@@ -111,10 +131,19 @@ export function createHttpApp(
 
   // Most clients (claude.ai included) never send DELETE /mcp when a chat
   // ends, so without this sweep abandoned sessions pile up until the cap.
-  const closeSession = (sid: string) => {
+  // Per-user clients die with their session. The domain cache is a WeakMap
+  // so it would be collected anyway; releasing it here doesn't rely on GC.
+  const forgetSession = (sid: string): SessionEntry | undefined => {
     const entry = sessions[sid];
-    if (!entry) return;
+    if (!entry) return undefined;
     delete sessions[sid];
+    if (entry.client !== fallbackClient) releaseDomains(entry.client);
+    return entry;
+  };
+
+  const closeSession = (sid: string) => {
+    const entry = forgetSession(sid);
+    if (!entry) return;
     entry.server.close().catch((error) => {
       console.error(`Error closing MCP session ${sid}:`, error);
     });
@@ -184,13 +213,79 @@ export function createHttpApp(
     );
   };
 
+  const fingerprint = createFingerprinter();
+  const requireUserCredentials = authMiddleware !== undefined;
+
+  // In auth mode every session belongs to the credentials that opened it.
+  // A different token presenting the same session id gets the same 404 as
+  // an unknown id, so session ids can't be hijacked or probed.
+  const resolveRequester = (req: Request): Requester => {
+    const creds = credentialsFromAuth((req as Request & { auth?: AuthInfo }).auth);
+    return creds ? { creds, owner: fingerprint(creds) } : { owner: null };
+  };
+
+  const ownsSession = (entry: SessionEntry, requester: Requester): boolean => {
+    if (entry.owner === null || requester.owner === null) {
+      return entry.owner === requester.owner && !requireUserCredentials;
+    }
+    return sameFingerprint(entry.owner, requester.owner);
+  };
+
+  const clientFor = (requester: Requester): SyncroApiClient | null => {
+    if (requester.creds) return new SyncroApiClient(requester.creds);
+    return requireUserCredentials ? null : fallbackClient;
+  };
+
+  const openSession = async (req: Request, res: Response, requester: Requester) => {
+    const sessionClient = clientFor(requester);
+    if (!sessionClient) {
+      if (requireUserCredentials) {
+        res.status(401).json({ error: "invalid_token", error_description: "Sign in again" });
+      } else {
+        console.error("No Syncro client configured for unauthenticated HTTP mode");
+        res.status(500).json({ error: "Internal server error" });
+      }
+      return;
+    }
+    if (!hasRoomForNewSession()) {
+      console.error(`Session cap reached (${maxSessions}); rejecting new session`);
+      res.status(503).json({ error: "Server at session capacity" });
+      return;
+    }
+
+    // Create a fresh Server + Transport for this session
+    const sessionServer = createServer(sessionClient, toolMode);
+    const sessionTransport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (sid) => {
+        sessions[sid] = {
+          transport: sessionTransport,
+          server: sessionServer,
+          lastActivity: Date.now(),
+          openRequests: 0,
+          owner: requester.owner,
+          client: sessionClient,
+        };
+      },
+    });
+    sessionTransport.onclose = () => {
+      const sid = sessionTransport.sessionId;
+      if (sid) forgetSession(sid);
+    };
+    await sessionServer.connect(sessionTransport);
+    await sessionTransport.handleRequest(req, res, req.body);
+  };
+
   const mcpHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
     try {
-      if (sessionId && sessions[sessionId]) {
+      const requester = resolveRequester(req);
+      const entry = sessionId ? sessions[sessionId] : undefined;
+
+      if (sessionId && entry && ownsSession(entry, requester)) {
         trackRequest(sessionId, res);
-        await sessions[sessionId].transport.handleRequest(req, res, req.body);
+        await entry.transport.handleRequest(req, res, req.body);
         return;
       }
 
@@ -205,33 +300,7 @@ export function createHttpApp(
       }
 
       if (isInitializeRequest(req.body)) {
-        if (!hasRoomForNewSession()) {
-          console.error(
-            `Session cap reached (${maxSessions}); rejecting new session`
-          );
-          res.status(503).json({ error: "Server at session capacity" });
-          return;
-        }
-
-        // Create a fresh Server + Transport for this session
-        const sessionServer = createServer(client, toolMode);
-        const sessionTransport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (sid) => {
-            sessions[sid] = {
-              transport: sessionTransport,
-              server: sessionServer,
-              lastActivity: Date.now(),
-              openRequests: 0,
-            };
-          },
-        });
-        sessionTransport.onclose = () => {
-          const sid = sessionTransport.sessionId;
-          if (sid) delete sessions[sid];
-        };
-        await sessionServer.connect(sessionTransport);
-        await sessionTransport.handleRequest(req, res, req.body);
+        await openSession(req, res, requester);
         return;
       }
 

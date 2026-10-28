@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import type { Server as HttpServer } from "node:http";
 import type { RequestHandler } from "express";
 import { SyncroApiClient } from "../src/api-client.js";
+import { hasCachedDomains } from "../src/domains/index.js";
 import {
   createHttpApp,
   MIN_EVICTION_IDLE_MS,
@@ -500,9 +501,13 @@ describe("createHttpApp — per-user Syncro credentials", () => {
     params: { name: "admin_get_me", arguments: {} },
   };
 
-  async function restart(fallback: SyncroApiClient | null) {
-    handle?.shutdown();
-    if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
+  async function stop() {
+    handle.shutdown();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+
+  async function start(fallback: SyncroApiClient | null) {
     handle = createHttpApp(fallback, { toolMode: "flat", authMiddleware: testAuth });
     const started = await listen(handle);
     server = started.server;
@@ -523,13 +528,12 @@ describe("createHttpApp — per-user Syncro credentials", () => {
       }
       return realFetch(input, init);
     }) as typeof fetch;
-    await restart(null);
+    await start(null);
   });
 
   afterEach(async () => {
     globalThis.fetch = realFetch;
-    handle.shutdown();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await stop();
   });
 
   it("calls Syncro with the session owner's own subdomain and key", async () => {
@@ -582,9 +586,50 @@ describe("createHttpApp — per-user Syncro credentials", () => {
   });
 
   it("never falls back to a server-wide client when auth is on", async () => {
-    await restart(makeClient());
+    await stop();
+    await start(makeClient());
     const res = await openSessionAs("no-creds");
     expect(res.status).toBe(401);
     expect(Object.keys(handle.sessions)).toHaveLength(0);
+  });
+
+  async function sessionWithLoadedDomains(user: string) {
+    const sid = (await openSessionAs(user)).headers.get("mcp-session-id")!;
+    await callAs(user, sid, getMe);
+    const client = handle.sessions[sid]!.client;
+    expect(hasCachedDomains(client)).toBe(true);
+    return { sid, client };
+  }
+
+  it("drops the per-user domain cache when the idle sweep closes a session", async () => {
+    const { sid, client } = await sessionWithLoadedDomains("alice");
+    handle.sweepIdleSessions(Date.now() + 2 * 60 * 60 * 1000);
+    expect(handle.sessions[sid]).toBeUndefined();
+    expect(hasCachedDomains(client)).toBe(false);
+  });
+
+  it("drops the per-user domain cache when a session is evicted at the cap", async () => {
+    await stop();
+    handle = createHttpApp(null, { toolMode: "flat", authMiddleware: testAuth, maxSessions: 1 });
+    const started = await listen(handle);
+    server = started.server;
+    url = started.url;
+
+    const { sid, client } = await sessionWithLoadedDomains("alice");
+    handle.sessions[sid] = {
+      ...handle.sessions[sid]!,
+      lastActivity: Date.now() - MIN_EVICTION_IDLE_MS - 1000,
+    };
+    expect((await openSessionAs("bob")).status).toBe(200);
+    expect(handle.sessions[sid]).toBeUndefined();
+    expect(hasCachedDomains(client)).toBe(false);
+  });
+
+  it("drops the per-user domain cache when the client deletes its session", async () => {
+    const { sid, client } = await sessionWithLoadedDomains("alice");
+    const res = await fetch(`${url}/mcp`, { method: "DELETE", headers: headersFor("alice", sid) });
+    await res.text();
+    expect(handle.sessions[sid]).toBeUndefined();
+    expect(hasCachedDomains(client)).toBe(false);
   });
 });
