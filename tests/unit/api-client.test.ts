@@ -216,4 +216,43 @@ describe("SyncroApiClient", () => {
 
     fetchSpy.mockRestore();
   });
+
+  it("redacts the API key if Syncro echoes it back in an error", async () => {
+    const apiKey = "T-echoed-secret-key-123";
+    const client = new SyncroApiClient({ apiKey, subdomain: "mycompany" });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: `Token ${apiKey} is not valid` }), { status: 401 })
+    );
+
+    const error = await client.get("/me").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SyncroApiError);
+    expect((error as Error).message).not.toContain(apiKey);
+    expect(JSON.stringify((error as SyncroApiError).details ?? {})).not.toContain(apiKey);
+
+    fetchSpy.mockRestore();
+  });
+
+  it("redacts the API key from network errors", async () => {
+    const apiKey = "T-network-secret-key-456";
+    const client = new SyncroApiClient({ apiKey, subdomain: "mycompany" });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new TypeError(`connect failed with Bearer ${apiKey}`));
+
+    const error = await client.get("/me").catch((e: unknown) => e);
+    expect((error as Error).message).not.toContain(apiKey);
+
+    fetchSpy.mockRestore();
+  });
+
+  it("does not tell remote users to check a server env var on 401", async () => {
+    const client = new SyncroApiClient({ apiKey: "T-realistic-key-789", subdomain: "mycompany" });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("{}", { status: 401 }));
+    const error = await client.get("/me").catch((e: unknown) => e);
+    expect((error as Error).message).toContain("Invalid or expired API key");
+    expect((error as Error).message).not.toContain("SYNCRO_API_KEY");
+    fetchSpy.mockRestore();
+  });
 });

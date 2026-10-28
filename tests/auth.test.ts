@@ -1,18 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { randomBytes } from "node:crypto";
 import type { Response } from "express";
-import type {
-  OAuthClientInformationFull,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/provider.js";
-import { McpOAuthProvider } from "../src/auth.js";
 import {
   InvalidTokenError,
   InvalidGrantError,
 } from "@modelcontextprotocol/sdk/server/auth/errors.js";
+import { McpOAuthProvider, type McpOAuthProviderOptions } from "../src/auth/index.js";
+import type { SubdomainPolicy } from "../src/auth/subdomain.js";
 
-// 64 hex chars (32 bytes) — 32 unique-ish chars, no weak substrings.
-const STRONG_SECRET =
-  "9f1c2d3e4b5a60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f0";
+const KEY = randomBytes(32);
+const OTHER_KEY = randomBytes(32);
+const API_KEY = "T0pS3cretSyncroKey1234567890";
+const ANY: SubdomainPolicy = { kind: "any" };
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 
 interface MockResponse {
   res: Response;
@@ -59,481 +62,665 @@ function createMockResponse(): MockResponse {
   } as MockResponse;
 }
 
-function makeClient(
-  overrides: Partial<OAuthClientInformationFull> = {}
-): OAuthClientInformationFull {
-  return {
-    client_id: "client-123",
-    client_name: "Test Client",
-    redirect_uris: ["https://example.com/callback"],
-    ...overrides,
-  } as OAuthClientInformationFull;
-}
-
-function makeAuthParams(
-  overrides: Partial<AuthorizationParams> = {}
-): AuthorizationParams {
+function makeAuthParams(overrides: Partial<AuthorizationParams> = {}): AuthorizationParams {
   return {
     redirectUri: "https://example.com/callback",
     codeChallenge: "challenge-abc",
-    codeChallengeMethod: "S256",
-    scopes: ["read"],
+    scopes: ["mcp:tools"],
     state: "state-xyz",
     ...overrides,
   } as AuthorizationParams;
 }
 
-describe("McpOAuthProvider — secret validation", () => {
-  it("throws on a 31-character secret", () => {
-    const s = "a".repeat(31);
-    expect(() => new McpOAuthProvider(s)).toThrow(/at least 32 characters/i);
-  });
+function pendingIdFrom(body: string | undefined): string {
+  const id = /name="pending_id" value="([^"]+)"/.exec(body ?? "")?.[1];
+  expect(id).toBeTruthy();
+  return id!;
+}
 
-  it("succeeds on a 32-char secret with sufficient entropy", () => {
-    const provider = new McpOAuthProvider(STRONG_SECRET);
-    expect(provider).toBeInstanceOf(McpOAuthProvider);
-    provider.dispose();
-  });
+const realFetch = globalThis.fetch;
+let fetchMock: ReturnType<typeof vi.fn>;
 
-  it("throws on the placeholder 'change-me-to-a-strong-secret-1234'", () => {
-    expect(
-      () => new McpOAuthProvider("change-me-to-a-strong-secret-1234")
-    ).toThrow(/weak or default/i);
-  });
+function syncroReplies(status: number) {
+  fetchMock.mockImplementation(async () => new Response("{}", { status }));
+}
 
-  it("throws when the secret has too few unique characters", () => {
-    // 64 chars but only 1 unique character — fails entropy check.
-    expect(() => new McpOAuthProvider("a".repeat(64))).toThrow(
-      /entropy|distinct/i
-    );
-  });
-
-  it("throws on an empty secret", () => {
-    expect(() => new McpOAuthProvider("")).toThrow(/at least 32 characters/i);
-  });
-
-  it("throws on a 32-char secret containing 'password'", () => {
-    expect(
-      () => new McpOAuthProvider("password" + "X".repeat(24))
-    ).toThrow(/weak or default/i);
-  });
+beforeEach(() => {
+  fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
 });
 
-describe("McpOAuthProvider — escHtml regression via authorize()", () => {
-  let provider: McpOAuthProvider;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  vi.useRealTimers();
+});
 
-  beforeEach(() => {
-    provider = new McpOAuthProvider(STRONG_SECRET);
-  });
+class Harness {
+  readonly provider: McpOAuthProvider;
+  clock = 1_800_000_000_000;
 
-  afterEach(() => {
-    provider.dispose();
-  });
-
-  it("escapes <, >, &, \", ', /, ` in client_name (no <script> in output)", async () => {
-    const mock = createMockResponse();
-    const client = makeClient({
-      client_name: "<script>alert('xss')</script>",
+  constructor(overrides: Partial<McpOAuthProviderOptions> = {}) {
+    this.provider = new McpOAuthProvider({
+      encryptionKey: KEY,
+      subdomainPolicy: ANY,
+      now: () => this.clock,
+      ...overrides,
     });
-    await provider.authorize(client, makeAuthParams(), mock.res);
-    const body = mock.body ?? "";
+  }
+
+  async register(
+    overrides: Partial<OAuthClientInformationFull> = {}
+  ): Promise<OAuthClientInformationFull> {
+    return this.provider.clientsStore.registerClient!({
+      client_id: "ignored",
+      client_name: "Test Client",
+      redirect_uris: ["https://example.com/callback"],
+      token_endpoint_auth_method: "none",
+      ...overrides,
+    } as OAuthClientInformationFull);
+  }
+
+  async openLogin(client: OAuthClientInformationFull, params = makeAuthParams()) {
+    const mock = createMockResponse();
+    await this.provider.authorize(client, params, mock.res);
+    return mock;
+  }
+
+  async submit(
+    pendingId: string,
+    fields: { subdomain?: string; apiKey?: string; ip?: string } = {}
+  ) {
+    const mock = createMockResponse();
+    await this.provider.handleAuthCallback(
+      {
+        pendingId,
+        subdomain: fields.subdomain ?? "acme",
+        apiKey: fields.apiKey ?? API_KEY,
+        ip: fields.ip ?? "203.0.113.7",
+      },
+      mock.res
+    );
+    return mock;
+  }
+
+  async getCode(client: OAuthClientInformationFull, params = makeAuthParams()) {
+    const login = await this.openLogin(client, params);
+    const cb = await this.submit(pendingIdFrom(login.body));
+    expect(cb.redirectUrl).toBeDefined();
+    return new URL(cb.redirectUrl!).searchParams.get("code")!;
+  }
+
+  async getTokens(client?: OAuthClientInformationFull) {
+    const c = client ?? (await this.register());
+    const code = await this.getCode(c);
+    const tokens = await this.provider.exchangeAuthorizationCode(c, code);
+    return { client: c, tokens };
+  }
+
+  dispose() {
+    this.provider.dispose();
+  }
+}
+
+let h: Harness;
+
+afterEach(() => {
+  h?.dispose();
+});
+
+describe("login page", () => {
+  beforeEach(() => {
+    h = new Harness();
+  });
+
+  it("asks for subdomain and API key, with the key as a non-autocompleted password field", async () => {
+    const page = await h.openLogin(await h.register());
+    const body = page.body ?? "";
+    expect(body).toMatch(/<input[^>]*name="subdomain"/);
+    const keyInput = /<input[^>]*name="api_key"[^>]*>/.exec(body)?.[0] ?? "";
+    expect(keyInput).toContain('type="password"');
+    expect(keyInput).toContain('autocomplete="off"');
+    expect(body).not.toMatch(/MCP_AUTH_SECRET|access key/i);
+  });
+
+  it("shows the locked subdomain and only asks for the key when SYNCRO_SUBDOMAIN is set", async () => {
+    h.dispose();
+    h = new Harness({ subdomainPolicy: { kind: "locked", subdomain: "acme" } });
+    const body = (await h.openLogin(await h.register())).body ?? "";
+    expect(body).not.toMatch(/<input[^>]*name="subdomain"/);
+    expect(body).toContain("acme.syncromsp.com");
+    expect(body).toMatch(/<input[^>]*name="api_key"/);
+  });
+
+  it("does not reveal the allowlist", async () => {
+    h.dispose();
+    h = new Harness({
+      subdomainPolicy: { kind: "allowlist", subdomains: new Set(["secretcustomer"]) },
+    });
+    const body = (await h.openLogin(await h.register())).body ?? "";
+    expect(body).not.toContain("secretcustomer");
+  });
+
+  it("sets a restrictive CSP and no form-action", async () => {
+    const page = await h.openLogin(await h.register());
+    const csp = page.headers["Content-Security-Policy"];
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("base-uri 'none'");
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+    expect(csp).not.toMatch(/form-action/);
+    expect(page.headers["X-Content-Type-Options"]).toBe("nosniff");
+    expect(page.headers["X-Frame-Options"]).toBe("DENY");
+    expect(page.headers["Referrer-Policy"]).toBe("no-referrer");
+    expect(page.headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("escapes a malicious client_name", async () => {
+    const client = await h.register({ client_name: "<script>alert('xss')</script>" });
+    const body = (await h.openLogin(client)).body ?? "";
     expect(body).not.toContain("<script>");
-    expect(body).not.toContain("</script>");
     expect(body).toContain("&lt;script&gt;");
     expect(body).toContain("&#39;");
   });
 
-  it("escapes a malicious client_id when client_name is empty", async () => {
-    const mock = createMockResponse();
-    const client = makeClient({
-      client_id: "</div><script>x</script>",
-      client_name: undefined,
-    });
-    await provider.authorize(client, makeAuthParams(), mock.res);
-    const body = mock.body ?? "";
-    expect(body).not.toContain("<script>x</script>");
-    expect(body).toContain("&lt;&#47;div&gt;");
+  it("escapes every special character", async () => {
+    const cases: Array<[string, string]> = [
+      ["&", "&amp;"],
+      ["<", "&lt;"],
+      [">", "&gt;"],
+      ['"', "&quot;"],
+      ["'", "&#39;"],
+      ["`", "&#96;"],
+      ["/", "&#47;"],
+    ];
+    for (const [input, expected] of cases) {
+      const client = await h.register({ client_name: `pre${input}post` });
+      expect((await h.openLogin(client)).body).toContain(`pre${expected}post`);
+    }
   });
 
-  it("escapes individual dangerous characters", async () => {
-    const mock = createMockResponse();
-    const client = makeClient({
-      client_name: `<>&"'\`/`,
-    });
-    await provider.authorize(client, makeAuthParams(), mock.res);
-    const body = mock.body ?? "";
-    expect(body).toContain("&lt;");
-    expect(body).toContain("&gt;");
-    expect(body).toContain("&amp;");
-    expect(body).toContain("&quot;");
-    expect(body).toContain("&#39;");
-    expect(body).toContain("&#96;");
-    expect(body).toContain("&#47;");
-  });
-});
-
-describe("McpOAuthProvider — security headers on authorize page", () => {
-  let provider: McpOAuthProvider;
-
-  beforeEach(() => {
-    provider = new McpOAuthProvider(STRONG_SECRET);
-  });
-
-  afterEach(() => {
-    provider.dispose();
-  });
-
-  it("sets a restrictive Content-Security-Policy", async () => {
-    const mock = createMockResponse();
-    await provider.authorize(makeClient(), makeAuthParams(), mock.res);
-    const csp = mock.headers["Content-Security-Policy"];
-    expect(csp).toBeDefined();
-    expect(csp).toContain("default-src 'none'");
-    expect(csp).toContain("frame-ancestors 'none'");
-    expect(csp).toContain("base-uri 'none'");
-    // Scripts are forbidden — no script-src 'unsafe-inline' permitted.
-    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
-  });
-
-  it("does NOT set form-action (would block cross-origin OAuth redirects)", async () => {
-    // Regression: a `form-action 'self'` directive blocks the browser from
-    // following the 302 redirect from /authorize/callback to the registered
-    // redirect_uri (e.g. https://claude.ai/...) because form-action applies
-    // to redirects too, not just the form's initial action target.
-    const mock = createMockResponse();
-    await provider.authorize(makeClient(), makeAuthParams(), mock.res);
-    const csp = mock.headers["Content-Security-Policy"];
-    expect(csp).toBeDefined();
-    expect(csp).not.toMatch(/form-action/);
-  });
-
-  it("sets X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Cache-Control", async () => {
-    const mock = createMockResponse();
-    await provider.authorize(makeClient(), makeAuthParams(), mock.res);
-    expect(mock.headers["X-Content-Type-Options"]).toBe("nosniff");
-    expect(mock.headers["X-Frame-Options"]).toBe("DENY");
-    expect(mock.headers["Referrer-Policy"]).toBe("no-referrer");
-    expect(mock.headers["Cache-Control"]).toBe("no-store");
-  });
-
-  it("sets the same security headers on the access-denied page", async () => {
-    const mock = createMockResponse();
-    // Seed a pending auth so we can hit the wrong-secret branch.
-    const seedMock = createMockResponse();
-    await provider.authorize(makeClient(), makeAuthParams(), seedMock.res);
-    const pendingId = /name="pending_id" value="([^"]+)"/.exec(
-      seedMock.body ?? ""
-    )?.[1];
-    expect(pendingId).toBeTruthy();
-    await provider.handleAuthCallback(pendingId!, "wrong", mock.res);
-    expect(mock.statusCode).toBe(403);
-    expect(mock.headers["Content-Security-Policy"]).toContain(
-      "default-src 'none'"
-    );
-    expect(mock.headers["X-Frame-Options"]).toBe("DENY");
-  });
-});
-
-describe("McpOAuthProvider — anti-phishing redirect_uri display", () => {
-  let provider: McpOAuthProvider;
-
-  beforeEach(() => {
-    provider = new McpOAuthProvider(STRONG_SECRET);
-  });
-
-  afterEach(() => {
-    provider.dispose();
-  });
-
-  it("renders the (escaped) redirect_uri prominently on the consent page", async () => {
-    const mock = createMockResponse();
-    const params = makeAuthParams({
-      redirectUri: "https://evil.example.com/cb?x=<script>",
-    });
-    await provider.authorize(makeClient(), params, mock.res);
-    const body = mock.body ?? "";
+  it("renders the escaped redirect_uri prominently", async () => {
+    const body =
+      (
+        await h.openLogin(
+          await h.register(),
+          makeAuthParams({ redirectUri: "https://evil.example.com/cb?x=<script>" })
+        )
+      ).body ?? "";
     expect(body).toContain("redirect-info");
     expect(body).toContain("https:&#47;&#47;evil.example.com");
     expect(body).not.toContain("<script>");
   });
 });
 
-describe("McpOAuthProvider — token type confusion", () => {
-  let provider: McpOAuthProvider;
-
+describe("sign-in callback", () => {
   beforeEach(() => {
-    provider = new McpOAuthProvider(STRONG_SECRET);
+    h = new Harness();
   });
 
-  afterEach(() => {
-    provider.dispose();
+  it("verifies the key against the Syncro me endpoint and redirects with a code", async () => {
+    const login = await h.openLogin(await h.register());
+    const cb = await h.submit(pendingIdFrom(login.body));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("https://acme.syncromsp.com/api/v1/me");
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: `Bearer ${API_KEY}` });
+
+    const redirect = new URL(cb.redirectUrl!);
+    expect(redirect.origin + redirect.pathname).toBe("https://example.com/callback");
+    expect(redirect.searchParams.get("code")).toBeTruthy();
+    expect(redirect.searchParams.get("state")).toBe("state-xyz");
+    expect(cb.redirectUrl).not.toContain(API_KEY);
   });
 
-  async function getTokens() {
-    const client = makeClient();
-    const params = makeAuthParams();
-    // Drive through the full flow to mint legitimate access + refresh tokens.
-    const authMock = createMockResponse();
-    await provider.authorize(client, params, authMock.res);
-    const pendingId = /name="pending_id" value="([^"]+)"/.exec(
-      authMock.body ?? ""
-    )?.[1];
-    expect(pendingId).toBeTruthy();
-    const cbMock = createMockResponse();
-    await provider.handleAuthCallback(pendingId!, STRONG_SECRET, cbMock.res);
-    const code = new URL(cbMock.redirectUrl!).searchParams.get("code");
-    expect(code).toBeTruthy();
-    const tokens = await provider.exchangeAuthorizationCode(client, code!);
-    return { client, tokens };
-  }
-
-  it("verifyAccessToken rejects a refresh token", async () => {
-    const { tokens } = await getTokens();
-    await expect(
-      provider.verifyAccessToken(tokens.refresh_token!)
-    ).rejects.toThrow(/invalid or expired token/i);
+  it("shows one generic error when Syncro rejects the key (401)", async () => {
+    syncroReplies(401);
+    const login = await h.openLogin(await h.register());
+    const cb = await h.submit(pendingIdFrom(login.body));
+    expect(cb.redirectUrl).toBeUndefined();
+    expect(cb.statusCode).toBe(403);
+    expect(cb.body).toContain("Sign-in failed");
+    expect(cb.body).not.toContain(API_KEY);
+    expect(cb.headers["Content-Security-Policy"]).toContain("default-src 'none'");
   });
 
-  it("exchangeRefreshToken rejects an access token", async () => {
-    const { client, tokens } = await getTokens();
-    await expect(
-      provider.exchangeRefreshToken(client, tokens.access_token)
-    ).rejects.toThrow(/invalid or expired refresh token/i);
-  });
-
-  it("verifyAccessToken accepts a real access token", async () => {
-    const { tokens } = await getTokens();
-    const info = await provider.verifyAccessToken(tokens.access_token);
-    expect(info.token).toBe(tokens.access_token);
-  });
-});
-
-describe("McpOAuthProvider — refresh token rotation", () => {
-  let provider: McpOAuthProvider;
-
-  beforeEach(() => {
-    provider = new McpOAuthProvider(STRONG_SECRET);
-  });
-
-  afterEach(() => {
-    provider.dispose();
-  });
-
-  it("mints a new refresh token and invalidates the old one", async () => {
-    const client = makeClient();
-    const authMock = createMockResponse();
-    await provider.authorize(client, makeAuthParams(), authMock.res);
-    const pendingId = /name="pending_id" value="([^"]+)"/.exec(
-      authMock.body ?? ""
-    )?.[1]!;
-    const cbMock = createMockResponse();
-    await provider.handleAuthCallback(pendingId, STRONG_SECRET, cbMock.res);
-    const code = new URL(cbMock.redirectUrl!).searchParams.get("code")!;
-    const tokens = await provider.exchangeAuthorizationCode(client, code);
-
-    const oldRefresh = tokens.refresh_token!;
-    const refreshed = await provider.exchangeRefreshToken(client, oldRefresh);
-    expect(refreshed.refresh_token).toBeDefined();
-    expect(refreshed.refresh_token).not.toBe(oldRefresh);
-
-    // Old refresh token is no longer usable.
-    await expect(
-      provider.exchangeRefreshToken(client, oldRefresh)
-    ).rejects.toThrow(/invalid or expired refresh token/i);
-
-    // New refresh token IS usable, and rotates again.
-    const refreshed2 = await provider.exchangeRefreshToken(
-      client,
-      refreshed.refresh_token!
+  it("shows the same generic error on a Syncro timeout", async () => {
+    h.dispose();
+    h = new Harness({ verifyTimeoutMs: 20 });
+    fetchMock.mockImplementation(
+      (_url: unknown, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () =>
+            reject(new DOMException("timed out", "TimeoutError"))
+          );
+        })
     );
-    expect(refreshed2.refresh_token).not.toBe(refreshed.refresh_token);
+    const login = await h.openLogin(await h.register());
+    const timedOut = await h.submit(pendingIdFrom(login.body));
+
+    syncroReplies(401);
+    const login2 = await h.openLogin(await h.register());
+    const rejected = await h.submit(pendingIdFrom(login2.body));
+
+    expect(timedOut.statusCode).toBe(rejected.statusCode);
+    expect(stripIds(timedOut.body)).toBe(stripIds(rejected.body));
+  });
+
+  it("shows the same generic error for an invalid subdomain, without calling out", async () => {
+    syncroReplies(401);
+    const login = await h.openLogin(await h.register());
+    const rejected = await h.submit(pendingIdFrom(login.body));
+    fetchMock.mockClear();
+
+    for (const subdomain of ["evil.com/", "a.b", "-x", "ACME", "ãcme", "@", ""]) {
+      const page = await h.openLogin(await h.register());
+      const cb = await h.submit(pendingIdFrom(page.body), {
+        subdomain,
+        ip: `198.51.100.${subdomain.length}`,
+      });
+      expect(cb.redirectUrl).toBeUndefined();
+      expect(stripIds(cb.body)).toBe(stripIds(rejected.body));
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a subdomain outside the allowlist without calling out", async () => {
+    h.dispose();
+    h = new Harness({ subdomainPolicy: { kind: "allowlist", subdomains: new Set(["acme"]) } });
+    const page = await h.openLogin(await h.register());
+    const cb = await h.submit(pendingIdFrom(page.body), { subdomain: "other" });
+    expect(cb.redirectUrl).toBeUndefined();
+    expect(cb.body).toContain("Sign-in failed");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const page2 = await h.openLogin(await h.register());
+    const ok = await h.submit(pendingIdFrom(page2.body), { subdomain: "acme" });
+    expect(ok.redirectUrl).toBeDefined();
+  });
+
+  it("ignores a posted subdomain when locked and always calls the locked tenant", async () => {
+    h.dispose();
+    h = new Harness({ subdomainPolicy: { kind: "locked", subdomain: "acme" } });
+    const page = await h.openLogin(await h.register());
+    const cb = await h.submit(pendingIdFrom(page.body), { subdomain: "evil" });
+    expect(cb.redirectUrl).toBeDefined();
+    expect(String(fetchMock.mock.calls[0]![0])).toBe("https://acme.syncromsp.com/api/v1/me");
+  });
+
+  it("allows only one attempt per pending id", async () => {
+    syncroReplies(401);
+    const login = await h.openLogin(await h.register());
+    const pendingId = pendingIdFrom(login.body);
+    await h.submit(pendingId);
+
+    syncroReplies(200);
+    const retry = await h.submit(pendingId);
+    expect(retry.redirectUrl).toBeUndefined();
+    expect(retry.statusCode).toBe(400);
+  });
+
+  it("offers a fresh form after a failure so the user can retry", async () => {
+    syncroReplies(401);
+    const login = await h.openLogin(await h.register());
+    const first = await h.submit(pendingIdFrom(login.body));
+    const freshId = pendingIdFrom(first.body);
+
+    syncroReplies(200);
+    const second = await h.submit(freshId);
+    expect(second.redirectUrl).toBeDefined();
+  });
+
+  it("rate-limits sign-in attempts per IP and stops calling Syncro", async () => {
+    syncroReplies(401);
+    const client = await h.register();
+    for (let i = 0; i < 5; i++) {
+      const page = await h.openLogin(client);
+      await h.submit(pendingIdFrom(page.body), { ip: "192.0.2.1" });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    syncroReplies(200);
+    const page = await h.openLogin(client);
+    const limited = await h.submit(pendingIdFrom(page.body), { ip: "192.0.2.1" });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.redirectUrl).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    const other = await h.openLogin(client);
+    const fromElsewhere = await h.submit(pendingIdFrom(other.body), { ip: "192.0.2.2" });
+    expect(fromElsewhere.redirectUrl).toBeDefined();
+  });
+
+  it("lets the IP try again after the window passes", async () => {
+    syncroReplies(401);
+    const client = await h.register();
+    for (let i = 0; i < 6; i++) {
+      const page = await h.openLogin(client);
+      await h.submit(pendingIdFrom(page.body), { ip: "192.0.2.9" });
+    }
+    h.clock += 16 * 60 * 1000;
+    syncroReplies(200);
+    const page = await h.openLogin(client);
+    const cb = await h.submit(pendingIdFrom(page.body), { ip: "192.0.2.9" });
+    expect(cb.redirectUrl).toBeDefined();
+  });
+
+  it("returns 400 for an unknown pending id", async () => {
+    const cb = await h.submit("not-a-pending-id");
+    expect(cb.statusCode).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
-describe("McpOAuthProvider — auth code single-use on client_id mismatch", () => {
-  let provider: McpOAuthProvider;
+function stripIds(body: string | undefined): string {
+  return (body ?? "").replace(/name="pending_id" value="[^"]+"/g, "");
+}
 
+describe("authorization code exchange", () => {
   beforeEach(() => {
-    provider = new McpOAuthProvider(STRONG_SECRET);
+    h = new Harness();
   });
 
-  afterEach(() => {
-    provider.dispose();
+  it("issues a 1 hour access token and a refresh token that carry the credentials sealed", async () => {
+    const { tokens } = await h.getTokens();
+    expect(tokens.token_type).toBe("bearer");
+    expect(tokens.expires_in).toBe(3600);
+    expect(tokens.refresh_token).toBeTruthy();
+    expect(tokens.scope).toBe("mcp:tools");
+    for (const t of [tokens.access_token, tokens.refresh_token!]) {
+      expect(t.startsWith("v1.")).toBe(true);
+      expect(t).not.toContain(API_KEY);
+      expect(Buffer.from(t.slice(3), "base64url").toString("latin1")).not.toContain(API_KEY);
+    }
   });
 
-  it("burns the auth code even when the wrong client tries to redeem it", async () => {
-    const issuingClient = makeClient({ client_id: "client-A" });
-    const attackerClient = makeClient({ client_id: "client-B" });
+  it("verifyAccessToken returns the user's Syncro credentials in extra", async () => {
+    const { tokens } = await h.getTokens();
+    const info = await h.provider.verifyAccessToken(tokens.access_token);
+    expect(info.token).toBe(tokens.access_token);
+    expect(info.scopes).toEqual(["mcp:tools"]);
+    expect(info.expiresAt).toBe(Math.floor((h.clock + HOUR) / 1000));
+    expect(info.extra).toEqual({ syncro: { subdomain: "acme", apiKey: API_KEY } });
+  });
 
-    const authMock = createMockResponse();
-    await provider.authorize(issuingClient, makeAuthParams(), authMock.res);
-    const pendingId = /name="pending_id" value="([^"]+)"/.exec(
-      authMock.body ?? ""
-    )?.[1]!;
-    const cbMock = createMockResponse();
-    await provider.handleAuthCallback(pendingId, STRONG_SECRET, cbMock.res);
-    const code = new URL(cbMock.redirectUrl!).searchParams.get("code")!;
+  it("is single use", async () => {
+    const client = await h.register();
+    const code = await h.getCode(client);
+    await h.provider.exchangeAuthorizationCode(client, code);
+    await expect(h.provider.exchangeAuthorizationCode(client, code)).rejects.toBeInstanceOf(
+      InvalidGrantError
+    );
+  });
 
-    // Attacker presents the code first — should be rejected AND burned.
+  it("burns the code when the wrong client presents it", async () => {
+    const issuing = await h.register();
+    const attacker = await h.register({ client_name: "Attacker" });
+    const code = await h.getCode(issuing);
+    await expect(h.provider.exchangeAuthorizationCode(attacker, code)).rejects.toThrow(
+      /invalid authorization code/i
+    );
+    await expect(h.provider.exchangeAuthorizationCode(issuing, code)).rejects.toThrow(
+      /invalid authorization code/i
+    );
+  });
+
+  it("rejects a redirect_uri that differs from the one authorized", async () => {
+    const client = await h.register();
+    const code = await h.getCode(client);
     await expect(
-      provider.exchangeAuthorizationCode(attackerClient, code)
-    ).rejects.toThrow(/invalid authorization code/i);
+      h.provider.exchangeAuthorizationCode(client, code, undefined, "https://evil.example/cb")
+    ).rejects.toBeInstanceOf(InvalidGrantError);
+  });
 
-    // The legitimate client can no longer redeem the code either.
+  it("rejects an expired code", async () => {
+    const client = await h.register();
+    const code = await h.getCode(client);
+    h.clock += 11 * 60 * 1000;
+    await expect(h.provider.exchangeAuthorizationCode(client, code)).rejects.toBeInstanceOf(
+      InvalidGrantError
+    );
+  });
+
+  it("challengeForAuthorizationCode returns the PKCE challenge, and rejects unknown codes", async () => {
+    const client = await h.register();
+    const code = await h.getCode(client);
+    await expect(h.provider.challengeForAuthorizationCode(client, code)).resolves.toBe(
+      "challenge-abc"
+    );
     await expect(
-      provider.exchangeAuthorizationCode(issuingClient, code)
-    ).rejects.toThrow(/invalid authorization code/i);
+      h.provider.challengeForAuthorizationCode(client, "nope")
+    ).rejects.toBeInstanceOf(InvalidGrantError);
   });
 });
 
-describe("McpOAuthProvider — SDK OAuth error contract", () => {
-  // The MCP SDK's bearerAuth middleware returns 401 only when verifyAccessToken
-  // throws an InvalidTokenError; the token handler returns 400 invalid_grant only
-  // when the provider throws an InvalidGrantError. Plain Error throws fall through
-  // to a 500. These tests lock in the correct error classes so that contract
-  // can't silently regress.
-
-  let provider: McpOAuthProvider;
-
+describe("token validation", () => {
   beforeEach(() => {
-    provider = new McpOAuthProvider(STRONG_SECRET);
+    h = new Harness();
   });
 
-  afterEach(() => {
-    provider.dispose();
+  it("rejects a refresh token used as a bearer token", async () => {
+    const { tokens } = await h.getTokens();
+    await expect(h.provider.verifyAccessToken(tokens.refresh_token!)).rejects.toBeInstanceOf(
+      InvalidTokenError
+    );
   });
 
-  it("verifyAccessToken throws InvalidTokenError on unknown token", async () => {
+  it("rejects an access token used as a refresh token", async () => {
+    const { client, tokens } = await h.getTokens();
     await expect(
-      provider.verifyAccessToken("not-a-real-token")
+      h.provider.exchangeRefreshToken(client, tokens.access_token)
+    ).rejects.toBeInstanceOf(InvalidGrantError);
+  });
+
+  it("rejects an expired access token", async () => {
+    const { tokens } = await h.getTokens();
+    h.clock += HOUR + 1000;
+    await expect(h.provider.verifyAccessToken(tokens.access_token)).rejects.toThrow(
+      /invalid or expired token/i
+    );
+  });
+
+  it("rejects an expired refresh token", async () => {
+    const { client, tokens } = await h.getTokens();
+    h.clock += 31 * DAY;
+    await expect(
+      h.provider.exchangeRefreshToken(client, tokens.refresh_token!)
+    ).rejects.toBeInstanceOf(InvalidGrantError);
+  });
+
+  it("rejects tampered and garbage tokens with InvalidTokenError", async () => {
+    const { tokens } = await h.getTokens();
+    const raw = Buffer.from(tokens.access_token.slice(3), "base64url");
+    raw[20] = raw[20]! ^ 0xff;
+    await expect(
+      h.provider.verifyAccessToken(`v1.${raw.toString("base64url")}`)
     ).rejects.toBeInstanceOf(InvalidTokenError);
+    await expect(h.provider.verifyAccessToken("not-a-real-token")).rejects.toBeInstanceOf(
+      InvalidTokenError
+    );
   });
 
-  it("exchangeRefreshToken throws InvalidGrantError on unknown token", async () => {
-    const client: OAuthClientInformationFull = {
-      client_id: "c1",
-      redirect_uris: ["http://localhost:9999/cb"],
-    };
-    await expect(
-      provider.exchangeRefreshToken(client, "not-a-real-refresh")
-    ).rejects.toBeInstanceOf(InvalidGrantError);
+  it("rejects tokens minted with a different encryption key", async () => {
+    const { tokens } = await h.getTokens();
+    const stranger = new McpOAuthProvider({ encryptionKey: OTHER_KEY, subdomainPolicy: ANY });
+    try {
+      await expect(stranger.verifyAccessToken(tokens.access_token)).rejects.toBeInstanceOf(
+        InvalidTokenError
+      );
+    } finally {
+      stranger.dispose();
+    }
   });
 
-  it("exchangeAuthorizationCode throws InvalidGrantError on unknown code", async () => {
-    const client: OAuthClientInformationFull = {
-      client_id: "c1",
-      redirect_uris: ["http://localhost:9999/cb"],
-    };
+  it("rejects a refresh token presented by another client", async () => {
+    const { tokens } = await h.getTokens();
+    const other = await h.register({ client_name: "Other" });
     await expect(
-      provider.exchangeAuthorizationCode(client, "not-a-real-code")
-    ).rejects.toBeInstanceOf(InvalidGrantError);
-  });
-
-  it("challengeForAuthorizationCode throws InvalidGrantError on unknown code", async () => {
-    const client: OAuthClientInformationFull = {
-      client_id: "c1",
-      redirect_uris: ["http://localhost:9999/cb"],
-    };
-    await expect(
-      provider.challengeForAuthorizationCode(client, "not-a-real-code")
+      h.provider.exchangeRefreshToken(other, tokens.refresh_token!)
     ).rejects.toBeInstanceOf(InvalidGrantError);
   });
 });
 
-describe("McpOAuthProvider — _sweepExpired", () => {
-  let provider: McpOAuthProvider;
+describe("restart and key rotation", () => {
+  it("tokens and client_id survive a new provider instance with the same key", async () => {
+    h = new Harness();
+    const { client, tokens } = await h.getTokens();
+    h.dispose();
 
+    const restarted = new Harness();
+    restarted.clock = h.clock;
+    h = restarted;
+    const reloaded = await h.provider.clientsStore.getClient(client.client_id);
+    expect(reloaded?.redirect_uris).toEqual(client.redirect_uris);
+    await expect(h.provider.verifyAccessToken(tokens.access_token)).resolves.toMatchObject({
+      extra: { syncro: { subdomain: "acme", apiKey: API_KEY } },
+    });
+    const refreshed = await h.provider.exchangeRefreshToken(reloaded!, tokens.refresh_token!);
+    expect(refreshed.access_token).toBeTruthy();
+  });
+
+  it("accepts tokens and clients sealed with the previous key, and seals new ones with the current key", async () => {
+    h = new Harness({ encryptionKey: OTHER_KEY });
+    const { client, tokens } = await h.getTokens();
+    const clock = h.clock;
+    h.dispose();
+
+    h = new Harness({ encryptionKey: KEY, previousEncryptionKeys: [OTHER_KEY] });
+    h.clock = clock;
+    await expect(h.provider.verifyAccessToken(tokens.access_token)).resolves.toBeDefined();
+    const reloaded = await h.provider.clientsStore.getClient(client.client_id);
+    expect(reloaded).toBeDefined();
+    const refreshed = await h.provider.exchangeRefreshToken(reloaded!, tokens.refresh_token!);
+
+    const currentOnly = new McpOAuthProvider({
+      encryptionKey: KEY,
+      subdomainPolicy: ANY,
+      now: () => clock,
+    });
+    const oldOnly = new McpOAuthProvider({
+      encryptionKey: OTHER_KEY,
+      subdomainPolicy: ANY,
+      now: () => clock,
+    });
+    try {
+      await expect(currentOnly.verifyAccessToken(refreshed.access_token)).resolves.toBeDefined();
+      await expect(oldOnly.verifyAccessToken(refreshed.access_token)).rejects.toBeInstanceOf(
+        InvalidTokenError
+      );
+    } finally {
+      currentOnly.dispose();
+      oldOnly.dispose();
+    }
+  });
+});
+
+describe("refresh rotation and revocation", () => {
   beforeEach(() => {
-    provider = new McpOAuthProvider(STRONG_SECRET);
+    h = new Harness();
   });
 
-  afterEach(() => {
-    provider.dispose();
-    vi.useRealTimers();
+  it("rotates the refresh token and rejects the old one after use", async () => {
+    const { client, tokens } = await h.getTokens();
+    const old = tokens.refresh_token!;
+    const refreshed = await h.provider.exchangeRefreshToken(client, old);
+    expect(refreshed.refresh_token).toBeTruthy();
+    expect(refreshed.refresh_token).not.toBe(old);
+    expect(refreshed.expires_in).toBe(3600);
+
+    await expect(h.provider.exchangeRefreshToken(client, old)).rejects.toThrow(
+      /invalid or expired refresh token/i
+    );
   });
 
-  it("removes expired tokens, codes, and pending auths", async () => {
-    const client = makeClient();
-    const authMock = createMockResponse();
-    await provider.authorize(client, makeAuthParams(), authMock.res);
-    const pendingId = /name="pending_id" value="([^"]+)"/.exec(
-      authMock.body ?? ""
-    )?.[1]!;
-    const cbMock = createMockResponse();
-    await provider.handleAuthCallback(pendingId, STRONG_SECRET, cbMock.res);
-    const code = new URL(cbMock.redirectUrl!).searchParams.get("code")!;
-    const tokens = await provider.exchangeAuthorizationCode(client, code);
+  it("keeps the credentials across a refresh", async () => {
+    const { client, tokens } = await h.getTokens();
+    const refreshed = await h.provider.exchangeRefreshToken(client, tokens.refresh_token!);
+    const info = await h.provider.verifyAccessToken(refreshed.access_token);
+    expect(info.extra).toEqual({ syncro: { subdomain: "acme", apiKey: API_KEY } });
+  });
 
-    // Token is currently valid.
+  it("treats reuse of a spent refresh token as theft and revokes the whole family", async () => {
+    const { client, tokens } = await h.getTokens();
+    const refreshed = await h.provider.exchangeRefreshToken(client, tokens.refresh_token!);
     await expect(
-      provider.verifyAccessToken(tokens.access_token)
-    ).resolves.toMatchObject({ token: tokens.access_token });
-
-    // Seed an additional pending auth (will count as the only un-deleted one).
-    const seed = createMockResponse();
-    await provider.authorize(client, makeAuthParams(), seed.res);
-
-    // Sweep with a "future" timestamp far past every TTL — everything expires.
-    const farFuture = Date.now() + 365 * 24 * 60 * 60 * 1000;
-    provider._sweepExpired(farFuture);
+      h.provider.exchangeRefreshToken(client, tokens.refresh_token!)
+    ).rejects.toBeInstanceOf(InvalidGrantError);
 
     await expect(
-      provider.verifyAccessToken(tokens.access_token)
-    ).rejects.toThrow(/invalid or expired token/i);
+      h.provider.exchangeRefreshToken(client, refreshed.refresh_token!)
+    ).rejects.toBeInstanceOf(InvalidGrantError);
+    await expect(h.provider.verifyAccessToken(refreshed.access_token)).rejects.toBeInstanceOf(
+      InvalidTokenError
+    );
+  });
+
+  it("refuses to widen scopes on refresh", async () => {
+    const { client, tokens } = await h.getTokens();
     await expect(
-      provider.exchangeRefreshToken(client, tokens.refresh_token!)
-    ).rejects.toThrow(/invalid or expired refresh token/i);
+      h.provider.exchangeRefreshToken(client, tokens.refresh_token!, ["mcp:tools", "admin"])
+    ).rejects.toThrow();
+  });
+
+  it("revoking an access token makes it unusable", async () => {
+    const { client, tokens } = await h.getTokens();
+    await h.provider.revokeToken(client, { token: tokens.access_token });
+    await expect(h.provider.verifyAccessToken(tokens.access_token)).rejects.toBeInstanceOf(
+      InvalidTokenError
+    );
+  });
+
+  it("revoking a refresh token kills it and the access tokens issued with it", async () => {
+    const { client, tokens } = await h.getTokens();
+    await h.provider.revokeToken(client, { token: tokens.refresh_token! });
+    await expect(
+      h.provider.exchangeRefreshToken(client, tokens.refresh_token!)
+    ).rejects.toBeInstanceOf(InvalidGrantError);
+    await expect(h.provider.verifyAccessToken(tokens.access_token)).rejects.toBeInstanceOf(
+      InvalidTokenError
+    );
+  });
+
+  it("ignores revocation requests from a different client", async () => {
+    const { tokens } = await h.getTokens();
+    const other = await h.register({ client_name: "Other" });
+    await h.provider.revokeToken(other, { token: tokens.access_token });
+    await expect(h.provider.verifyAccessToken(tokens.access_token)).resolves.toBeDefined();
+  });
+
+  it("silently ignores unknown tokens", async () => {
+    const client = await h.register();
+    await expect(h.provider.revokeToken(client, { token: "garbage" })).resolves.toBeUndefined();
   });
 });
 
-describe("McpOAuthProvider — dispose()", () => {
-  it("clears the periodic sweep interval and is idempotent", () => {
-    const provider = new McpOAuthProvider(STRONG_SECRET);
-    expect(() => provider.dispose()).not.toThrow();
-    // Second call must be a no-op.
-    expect(() => provider.dispose()).not.toThrow();
+describe("housekeeping", () => {
+  it("sweep forgets expired pending sign-ins and codes", async () => {
+    h = new Harness();
+    const client = await h.register();
+    const login = await h.openLogin(client);
+    const code = await h.getCode(client);
+
+    h.provider._sweepExpired(h.clock + 11 * 60 * 1000);
+
+    const cb = await h.submit(pendingIdFrom(login.body));
+    expect(cb.statusCode).toBe(400);
+    await expect(h.provider.exchangeAuthorizationCode(client, code)).rejects.toBeInstanceOf(
+      InvalidGrantError
+    );
   });
 
-  it("does not leave a timer keeping the event loop alive", () => {
-    // We can verify the interval is cleared by replacing clearInterval and
-    // confirming it is invoked exactly once on the first dispose() call.
+  it("dispose is idempotent and clears its timer once", () => {
     const real = globalThis.clearInterval;
     const spy = vi.fn(real);
     globalThis.clearInterval = spy as typeof globalThis.clearInterval;
     try {
-      const provider = new McpOAuthProvider(STRONG_SECRET);
+      const provider = new McpOAuthProvider({ encryptionKey: KEY, subdomainPolicy: ANY });
       provider.dispose();
       provider.dispose();
       expect(spy).toHaveBeenCalledTimes(1);
     } finally {
       globalThis.clearInterval = real;
-    }
-  });
-});
-
-describe("escHtml — exposed indirectly via authorize() output", () => {
-  // escHtml is a private module helper. We test all 7 mappings end-to-end
-  // by feeding each character through the rendered HTML.
-  it("escapes every special character correctly", async () => {
-    const provider = new McpOAuthProvider(STRONG_SECRET);
-    try {
-      const cases: Array<[string, string]> = [
-        ["&", "&amp;"],
-        ["<", "&lt;"],
-        [">", "&gt;"],
-        ['"', "&quot;"],
-        ["'", "&#39;"],
-        ["`", "&#96;"],
-        ["/", "&#47;"],
-      ];
-      for (const [input, expected] of cases) {
-        const mock = createMockResponse();
-        const client = makeClient({ client_name: `pre${input}post` });
-        await provider.authorize(client, makeAuthParams(), mock.res);
-        expect(mock.body).toContain(`pre${expected}post`);
-      }
-    } finally {
-      provider.dispose();
     }
   });
 });
