@@ -36,6 +36,7 @@ services:
       - MCP_ALLOW_ANY_SUBDOMAIN=${MCP_ALLOW_ANY_SUBDOMAIN:-}
       - MCP_TOOL_MODE=${MCP_TOOL_MODE:-flat}
       - MCP_SESSION_IDLE_MINUTES=${MCP_SESSION_IDLE_MINUTES:-60}
+      - MCP_MAX_SESSIONS_PER_USER=${MCP_MAX_SESSIONS_PER_USER:-25}
     read_only: true
     cap_drop:
       - ALL

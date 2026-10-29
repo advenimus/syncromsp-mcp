@@ -82,7 +82,8 @@ Registration is open, so anyone can register a client with their own `redirect_u
 | Authorization | Bearer token required on `/mcp`; 1h access / 30d refresh with rotation and reuse detection; sessions bound to their owner; Syncro per-key permissions |
 | Anti-phishing | Sign-in page displays client name + redirect_uri; HTML-escaped; CSP `default-src 'none'` |
 | SSRF | Strict single-label subdomain; host always `*.syncromsp.com`; redirects not followed |
-| Rate limiting | 5 failed sign-in attempts / 15 min / IP; 100/15min on `/authorize`; 20/hr on `/register` (MCP SDK) |
+| Rate limiting | 5 failed sign-in attempts / 15 min / IP; 100/15min on `/authorize`; 20/hr on `/register` (MCP SDK); outbound Syncro calls 180/min per tenant |
+| Session limits | 1000 sessions total; `MCP_MAX_SESSIONS_PER_USER` (default 25) per signed-in user, so one user can't fill the server |
 | Container | non-root, read-only rootfs, all capabilities dropped, no-new-privileges, tmpfs `/tmp` |
 | Supply chain | Pinned image versions; npm ci against committed lockfile |
 
