@@ -68,9 +68,11 @@ You MUST NEVER:
 - Disable OAuth (`MCP_AUTH=false`) on a public-facing deployment. The server requires `MCP_I_UNDERSTAND_INSECURE=true` as an explicit foot-gun guard for non-public deployments. In that mode every session shares one `SYNCRO_API_KEY` from the environment.
 - Commit `.env` or any file containing `MCP_TOKEN_ENCRYPTION_KEY` or a `SYNCRO_API_KEY`.
 
-### Known limitation: phishing through open registration
+### Phishing through open registration
 
-Registration is open, so anyone can register a client with their own `redirect_uri` and send a user a sign-in link. If the user enters their Syncro key on that page, the attacker's client receives tokens for the user's account (the attacker still never sees the raw key). The sign-in page shows the destination `redirect_uri` for exactly this reason. Users should only sign in from links their own MCP client opened, and only when the destination is expected.
+Registration is open, so anyone can register a client with their own `redirect_uri` and send a user a sign-in link. If the user enters their Syncro key on that page, the attacker's client receives tokens for the user's account (the attacker still never sees the raw key). The sign-in page shows the destination `redirect_uri` for exactly this reason.
+
+Close this gap by setting `MCP_ALLOWED_REDIRECT_URIS` to the clients you actually use, for example `https://claude.ai/api/mcp/auth_callback,https://claude.com/api/mcp/auth_callback,http://localhost,http://127.0.0.1`. Registration is then refused for any other destination, and clients registered earlier with another destination stop working. An entry without a port (like `http://localhost`) allows any port, which native clients need.
 
 ## Defense Layers
 
@@ -80,25 +82,17 @@ Registration is open, so anyone can register a client with their own `redirect_u
 | Authentication | OAuth 2.1 + PKCE; each user's own Syncro key, verified live against Syncro |
 | Credential storage | None on disk; subdomain + key sealed in AES-256-GCM tokens (HKDF subkeys, random IV, type-bound AAD) |
 | Authorization | Bearer token required on `/mcp`; 1h access / 30d refresh with rotation and reuse detection; sessions bound to their owner; Syncro per-key permissions |
-| Anti-phishing | Sign-in page displays client name + redirect_uri; HTML-escaped; CSP `default-src 'none'` |
-| SSRF | Strict single-label subdomain; host always `*.syncromsp.com`; redirects not followed |
+| Anti-phishing | Sign-in page displays client name + redirect_uri; HTML-escaped; CSP `default-src 'none'`; optional `MCP_ALLOWED_REDIRECT_URIS` allowlist |
+| DNS rebinding | Requests whose `Host` isn't the `MCP_BASE_URL` host (or `MCP_ALLOWED_HOSTS`) get 421; `/health` exempt |
+| SSRF | Strict single-label subdomain; host always `*.syncromsp.com`; redirects not followed. `file_url` downloads are https-only and refuse private, loopback, link-local, and IPv4-embedding IPv6 ranges, checked at connect time; `file_path` is refused on a hosted server |
 | Rate limiting | 5 failed sign-in attempts / 15 min / IP; 100/15min on `/authorize`; 20/hr on `/register` (MCP SDK); outbound Syncro calls 180/min per tenant and 180/min server-wide (`MCP_SERVER_RATE_LIMIT_PER_MINUTE`) |
 | Session limits | 1000 sessions total; `MCP_MAX_SESSIONS_PER_USER` (default 25) per signed-in user, so one user can't fill the server |
 | Container | non-root, read-only rootfs, all capabilities dropped, no-new-privileges, tmpfs `/tmp` |
-| Supply chain | Pinned image versions; npm ci against committed lockfile |
+| Supply chain | npm ci against committed lockfile; GitHub Actions pinned to commit SHAs with least-privilege per-job permissions; release tooling pinned to exact versions; npm packages published with provenance |
 
 ## Known Acceptable Risks
 
-After updating to `@modelcontextprotocol/sdk@1.29.0` and running `npm audit --omit=dev`, four moderate-severity advisories remain. All are transitive dependencies pulled in by the MCP SDK and cannot be resolved in this project until the SDK author updates them upstream:
-
-| Package | Advisory | Why this server is not affected |
-|---------|----------|---------------------------------|
-| `@hono/node-server` <1.19.13 | Middleware bypass via repeated slashes in `serveStatic` ([GHSA-92pp-h63x-v22m](https://github.com/advisories/GHSA-92pp-h63x-v22m)) | This server uses **Express + StreamableHTTPServerTransport**, not Hono's HTTP server. The vulnerable `serveStatic` middleware is never instantiated. |
-| `hono` <=4.12.15 | Multiple — `setCookie`/`getCookie` validation, path traversal in `toSSG`, `serveStatic` slash bypass, JSX SSR HTML injection, IPv4-mapped IPv6 in `ipRestriction`, `bodyLimit` chunked-encoding bypass | None of Hono's cookie helpers, static-site generator, JSX SSR, IP-restriction middleware, or body-limit middleware are reachable from this server's request path. The Hono package is loaded only as a transitive dep of the SDK. |
-| `express-rate-limit` 8.0.1–8.5.0 | Depends on vulnerable `ip-address` versions | This server does not invoke `express-rate-limit` directly. Where rate limiting applies (`/authorize`, `/register`), it is provided by the MCP SDK and does not pass user-controlled input through `Address6` HTML emitters. |
-| `ip-address` <=10.1.0 | XSS in `Address6` HTML-emitting methods ([GHSA-v2v4-37r5-5v8g](https://github.com/advisories/GHSA-v2v4-37r5-5v8g)) | Exploitation requires calling `Address6.prototype.to6to4()` / `inspectTeredo()`-style HTML emitters with attacker-controlled data and rendering the result. This server never calls those methods. |
-
-These advisories will clear automatically once the MCP SDK publishes a release that updates Hono and its dependents. We re-run `npm audit --omit=dev` on every release and will revisit this section as upstream fixes land.
+`npm audit` reports no known vulnerabilities in runtime or development dependencies as of `@modelcontextprotocol/sdk@1.32.2` and `zod@4.6.7`. We re-run `npm audit` on every release.
 
 ## Versioning
 

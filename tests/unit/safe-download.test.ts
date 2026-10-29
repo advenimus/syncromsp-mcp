@@ -7,6 +7,7 @@ describe("isBlockedAddress", () => {
   it.each([
     "127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.10", "169.254.169.254", "100.64.0.1", "0.0.0.0",
     "::1", "fe80::1", "fd00::5", "::ffff:127.0.0.1", "::ffff:10.0.0.1",
+    "::7f00:1", "::a9fe:a9fe", "2002:7f00:1::", "2002:a9fe:a9fe::1", "2001:0:4136:e378::1",
   ])("should block %s", (address) => {
     expect(isBlockedAddress(address)).toBe(true);
   });

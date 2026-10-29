@@ -5,6 +5,7 @@ import {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { InvalidClientMetadataError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { Sealer } from "./token-crypto.js";
+import { isRedirectAllowed, type RedirectRule } from "./redirect-policy.js";
 
 const CLIENT_PURPOSE = "client";
 const CLIENT_VERSION = 1;
@@ -51,12 +52,23 @@ function isSealedClient(value: unknown): value is SealedClient {
  * redirect_uris read back from it can be trusted like a stored record.
  */
 export class StatelessClientsStore implements OAuthRegisteredClientsStore {
-  constructor(private readonly sealer: Sealer) {}
+  constructor(
+    private readonly sealer: Sealer,
+    private readonly redirectRules?: readonly RedirectRule[]
+  ) {}
+
+  private redirectsAllowed(uris: readonly string[]): boolean {
+    const rules = this.redirectRules;
+    return !rules || uris.every((uri) => isRedirectAllowed(String(uri), rules));
+  }
 
   async registerClient(client: OAuthClientInformationFull): Promise<OAuthClientInformationFull> {
     const md = pickKeptFields(client);
     if (!Array.isArray(md.redirect_uris) || md.redirect_uris.length === 0) {
       throw new InvalidClientMetadataError("At least one redirect_uri is required");
+    }
+    if (!this.redirectsAllowed(md.redirect_uris)) {
+      throw new InvalidClientMetadataError("redirect_uri is not allowed on this server");
     }
     if (Buffer.byteLength(JSON.stringify(md), "utf8") > MAX_CLIENT_METADATA_BYTES) {
       throw new InvalidClientMetadataError("Client metadata is too large");
@@ -71,6 +83,8 @@ export class StatelessClientsStore implements OAuthRegisteredClientsStore {
     if (!isSealedClient(opened)) return undefined;
     const parsed = OAuthClientMetadataSchema.safeParse(opened.md);
     if (!parsed.success || parsed.data.redirect_uris.length === 0) return undefined;
+    // Re-checked on every use so tightening the allowlist also retires old clients.
+    if (!this.redirectsAllowed(parsed.data.redirect_uris)) return undefined;
     return { ...pickKeptFields(opened.md as OAuthClientInformationFull), client_id: clientId };
   }
 }

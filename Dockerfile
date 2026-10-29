@@ -1,5 +1,5 @@
 # Pinned minor — bump deliberately when tracking node 22 LTS updates.
-FROM node:22.13-alpine AS builder
+FROM node:22.23-alpine AS builder
 
 WORKDIR /app
 
@@ -13,7 +13,7 @@ RUN npm run build
 
 # Production stage
 # Pinned minor — bump deliberately when tracking node 22 LTS updates.
-FROM node:22.13-alpine
+FROM node:22.23-alpine
 
 RUN addgroup -g 1001 -S syncro && \
     adduser -S syncro -u 1001 -G syncro

@@ -701,3 +701,52 @@ describe("createHttpApp — per-user Syncro credentials", () => {
     controller.abort();
   });
 });
+
+describe("createHttpApp — Host header check", () => {
+  let handle: HttpAppHandle;
+  let server: HttpServer;
+  let url: string;
+
+  beforeEach(async () => {
+    handle = createHttpApp(makeClient(), { toolMode: "flat", allowedHosts: ["mcp.example.com"] });
+    const started = await listen(handle);
+    server = started.server;
+    url = started.url;
+  });
+
+  afterEach(async () => {
+    handle.shutdown();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  async function requestWithHost(path: string, host: string): Promise<number> {
+    const { request } = await import("node:http");
+    const target = new URL(path, url);
+    return new Promise((resolve, reject) => {
+      const req = request(
+        { hostname: target.hostname, port: target.port, path: target.pathname, method: "GET", headers: { host } },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        }
+      );
+      req.on("error", reject);
+      req.end();
+    });
+  }
+
+  it("rejects requests addressed to another host name (DNS rebinding)", async () => {
+    expect(await requestWithHost("/mcp", "attacker.example")).toBe(421);
+    expect(await requestWithHost("/.well-known/oauth-authorization-server", "127.0.0.1:8080")).toBe(421);
+  });
+
+  it("accepts the configured host, with or without a port", async () => {
+    expect(await requestWithHost("/mcp", "mcp.example.com")).not.toBe(421);
+    expect(await requestWithHost("/mcp", "MCP.example.com:443")).not.toBe(421);
+  });
+
+  it("keeps /health reachable for the container health check", async () => {
+    expect(await requestWithHost("/health", "localhost:8080")).toBe(200);
+  });
+});

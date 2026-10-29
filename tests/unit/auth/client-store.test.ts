@@ -4,6 +4,7 @@ import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/share
 import { InvalidClientMetadataError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import { StatelessClientsStore } from "../../../src/auth/client-store.js";
 import { createSealer } from "../../../src/auth/token-crypto.js";
+import { parseRedirectAllowlist } from "../../../src/auth/redirect-policy.js";
 
 const KEY_A = randomBytes(32);
 const KEY_B = randomBytes(32);
@@ -120,5 +121,26 @@ describe("StatelessClientsStore", () => {
   it("returns undefined for an absurdly long client_id without trying to decrypt", async () => {
     const store = new StatelessClientsStore(createSealer("client", [KEY_A]));
     await expect(store.getClient(`v1.${"A".repeat(100_000)}`)).resolves.toBeUndefined();
+  });
+
+  it("refuses to register a client whose redirect_uri is not on the allowlist", async () => {
+    const rules = parseRedirectAllowlist("https://claude.ai/api/mcp/auth_callback");
+    const store = new StatelessClientsStore(createSealer("client", [KEY_A]), rules);
+    await expect(
+      store.registerClient(registration({ redirect_uris: ["https://evil.example/cb"] }))
+    ).rejects.toBeInstanceOf(InvalidClientMetadataError);
+    await expect(store.registerClient(registration())).resolves.toBeDefined();
+  });
+
+  it("stops honoring an already-sealed client once its redirect leaves the allowlist", async () => {
+    const open = new StatelessClientsStore(createSealer("client", [KEY_A]));
+    const { client_id } = await open.registerClient(
+      registration({ redirect_uris: ["https://evil.example/cb"] })
+    );
+    const strict = new StatelessClientsStore(
+      createSealer("client", [KEY_A]),
+      parseRedirectAllowlist("https://claude.ai/api/mcp/auth_callback")
+    );
+    expect(await strict.getClient(client_id)).toBeUndefined();
   });
 });

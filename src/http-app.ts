@@ -32,6 +32,8 @@ export interface HttpAppOptions {
   maxSessions?: number;
   maxSessionsPerUser?: number;
   serverRateLimitPerMinute?: number;
+  /** Host names this server answers to; anything else gets 421. Unset = no check. */
+  allowedHosts?: readonly string[];
   idleTimeoutMs?: number;
   sweepIntervalMs?: number;
   /**
@@ -82,6 +84,7 @@ export function createHttpApp(
     maxSessions = DEFAULT_MAX_SESSIONS,
     maxSessionsPerUser = DEFAULT_MAX_SESSIONS_PER_USER,
     serverRateLimitPerMinute,
+    allowedHosts,
     idleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS,
     sweepIntervalMs = DEFAULT_SESSION_SWEEP_INTERVAL_MS,
     preMcpRouteInstaller,
@@ -116,6 +119,19 @@ export function createHttpApp(
     );
     next();
   });
+
+  // Rejecting unknown Host headers defeats DNS rebinding, where a web page
+  // points its own domain at this server to reach it through a browser.
+  // /health stays open for the container's own localhost health check.
+  if (allowedHosts && allowedHosts.length > 0) {
+    const allowed = new Set(allowedHosts.map((h) => h.toLowerCase()));
+    app.use((req, res, next) => {
+      if (req.path === "/health") return next();
+      const host = (req.headers.host ?? "").toLowerCase().replace(/:\d+$/, "");
+      if (allowed.has(host)) return next();
+      res.status(421).json({ error: "Misdirected request" });
+    });
+  }
 
   // 3. Body parsers with explicit limits. Without these limits, an attacker
   //    could send arbitrarily large bodies and exhaust memory.

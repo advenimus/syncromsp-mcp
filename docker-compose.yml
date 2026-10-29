@@ -38,6 +38,8 @@ services:
       - MCP_SESSION_IDLE_MINUTES=${MCP_SESSION_IDLE_MINUTES:-60}
       - MCP_MAX_SESSIONS_PER_USER=${MCP_MAX_SESSIONS_PER_USER:-25}
       - MCP_SERVER_RATE_LIMIT_PER_MINUTE=${MCP_SERVER_RATE_LIMIT_PER_MINUTE:-180}
+      # Recommended: only these client return addresses may register.
+      - MCP_ALLOWED_REDIRECT_URIS=${MCP_ALLOWED_REDIRECT_URIS:-}
     read_only: true
     cap_drop:
       - ALL
