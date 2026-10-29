@@ -17,12 +17,12 @@ export class SyncroApiClient {
   private readonly apiKey: string;
   private readonly rateLimiter: RateLimiter;
 
-  constructor(config: SyncroApiConfig) {
+  constructor(config: SyncroApiConfig, rateLimiter: RateLimiter = new RateLimiter()) {
     if (!config.apiKey) throw new Error("SYNCRO_API_KEY is required");
     if (!config.subdomain) throw new Error("SYNCRO_SUBDOMAIN is required");
     this.baseUrl = `https://${config.subdomain}.syncromsp.com/api/v1`;
     this.apiKey = config.apiKey;
-    this.rateLimiter = new RateLimiter(180);
+    this.rateLimiter = rateLimiter;
   }
 
   private buildUrl(path: string, params?: Record<string, string | number | boolean | undefined>): string {
@@ -63,17 +63,23 @@ export class SyncroApiClient {
       fetchOptions.body = JSON.stringify(options.body);
     }
 
-    const response = await fetch(url, fetchOptions);
+    let response: Response;
+    try {
+      response = await fetch(url, fetchOptions);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(this.redact(`Request to Syncro failed: ${message}`));
+    }
 
     if (!response.ok) {
       let details: SyncroErrorResponse | undefined;
       try {
-        details = (await response.json()) as SyncroErrorResponse;
+        details = this.redactDetails((await response.json()) as SyncroErrorResponse);
       } catch {
         // response may not be JSON
       }
 
-      const message = this.formatErrorMessage(response.status, details);
+      const message = this.redact(this.formatErrorMessage(response.status, details));
       throw new SyncroApiError(message, response.status, details);
     }
 
@@ -84,6 +90,26 @@ export class SyncroApiClient {
     return (await response.json()) as T;
   }
 
+  // Error text is returned to the MCP client, so the key must never be echoed.
+  private redact(text: string): string {
+    return text.split(this.apiKey).join("[redacted]");
+  }
+
+  private redactDetails(details: SyncroErrorResponse): SyncroErrorResponse {
+    return this.redactValue(details) as SyncroErrorResponse;
+  }
+
+  private redactValue(value: unknown): unknown {
+    if (typeof value === "string") return this.redact(value);
+    if (Array.isArray(value)) return value.map((v) => this.redactValue(v));
+    if (value !== null && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [this.redact(k), this.redactValue(v)])
+      );
+    }
+    return value;
+  }
+
   private formatErrorMessage(status: number, details?: SyncroErrorResponse): string {
     const base = `Syncro API error (${status})`;
     const apiDetail = this.extractApiErrorDetail(details);
@@ -91,7 +117,7 @@ export class SyncroApiClient {
     const withDetail = (generic: string): string =>
       apiDetail ? `${base}: ${generic} — ${apiDetail}` : `${base}: ${generic}`;
 
-    if (status === 401) return withDetail("Invalid or expired API key. Check SYNCRO_API_KEY.");
+    if (status === 401) return withDetail("Invalid or expired API key. Check your Syncro API key.");
     if (status === 403) return withDetail("Insufficient permissions. Check your API token's custom permissions.");
     if (status === 404) return withDetail("Resource not found.");
     if (status === 429) return withDetail("Rate limit exceeded. Please wait before retrying.");

@@ -34,6 +34,25 @@ describe("Navigation", () => {
     expect(names).toContain("syncro_back");
   });
 
+  it("keeps navigation state separate for each server", async () => {
+    const first = createTestServer();
+    const second = createTestServer();
+    vi.spyOn(first, "notification").mockResolvedValue(undefined);
+
+    await (first as any)._requestHandlers.get("tools/call")!({
+      method: "tools/call",
+      params: { name: "syncro_navigate", arguments: { domain: "tickets" } },
+    }, {});
+
+    const result = await (second as any)._requestHandlers.get("tools/list")!({
+      method: "tools/list",
+      params: {},
+    }, {});
+    const names = result.tools.map((t: any) => t.name);
+    expect(names).toContain("syncro_navigate");
+    expect(names).not.toContain("tickets_list");
+  });
+
   it("should show domain tools after navigation", async () => {
     const server = createTestServer();
 

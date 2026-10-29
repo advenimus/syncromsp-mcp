@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
@@ -12,7 +13,7 @@ import {
   navigateTo,
   navigateBack,
   setSession,
-  getDefaultSessionId,
+  removeSession,
 } from "./session.js";
 import {
   DOMAIN_NAMES,
@@ -108,6 +109,11 @@ export function createServer(
   } else {
     // ===== NAVIGATION MODE: Lazy-loaded domain tools =====
 
+    // One HTTP process hosts many users' sessions, so navigation state must
+    // belong to this server, not a process-wide default.
+    const navSessionId = randomUUID();
+    server.onclose = () => removeSession(navSessionId);
+
     const navigationTools: Tool[] = [
       {
         name: "syncro_navigate",
@@ -143,7 +149,7 @@ export function createServer(
     ];
 
     server.setRequestHandler(ListToolsRequestSchema, async () => {
-      const sessionId = getDefaultSessionId();
+      const sessionId = navSessionId;
       const session = getSession(sessionId);
 
       if (!session.currentDomain) {
@@ -164,7 +170,7 @@ export function createServer(
       CallToolRequestSchema,
       async (request): Promise<CallToolResult> => {
         const { name, arguments: args = {} } = request.params;
-        const sessionId = getDefaultSessionId();
+        const sessionId = navSessionId;
 
         try {
           // Handle navigation tools

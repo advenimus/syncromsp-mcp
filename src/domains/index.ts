@@ -1,7 +1,9 @@
 import type { DomainHandler, DomainName } from "../types.js";
 import type { SyncroApiClient } from "../api-client.js";
 
-const domainCache = new Map<DomainName, DomainHandler>();
+// Handlers close over their client, so the cache must be per client or one
+// user's session would end up calling Syncro with another user's key.
+let domainCache = new WeakMap<SyncroApiClient, ReadonlyMap<DomainName, DomainHandler>>();
 
 const domainLoaders: Record<DomainName, () => Promise<{ createDomain: (client: SyncroApiClient) => DomainHandler }>> = {
   tickets: () => import("./tickets.js"),
@@ -23,18 +25,30 @@ const domainLoaders: Record<DomainName, () => Promise<{ createDomain: (client: S
 };
 
 export async function loadDomain(name: DomainName, client: SyncroApiClient): Promise<DomainHandler> {
-  const cached = domainCache.get(name);
+  const cached = domainCache.get(client)?.get(name);
   if (cached) return cached;
 
   const loader = domainLoaders[name];
   if (!loader) throw new Error(`Unknown domain: ${name}`);
 
   const module = await loader();
+  // Re-read after the await so a concurrent load of another domain isn't overwritten.
+  const perClient = domainCache.get(client) ?? new Map<DomainName, DomainHandler>();
+  const raced = perClient.get(name);
+  if (raced) return raced;
   const handler = module.createDomain(client);
-  domainCache.set(name, handler);
+  domainCache.set(client, new Map(perClient).set(name, handler));
   return handler;
 }
 
+export function releaseDomains(client: SyncroApiClient): void {
+  domainCache.delete(client);
+}
+
+export function hasCachedDomains(client: SyncroApiClient): boolean {
+  return domainCache.has(client);
+}
+
 export function clearDomainCache(): void {
-  domainCache.clear();
+  domainCache = new WeakMap();
 }

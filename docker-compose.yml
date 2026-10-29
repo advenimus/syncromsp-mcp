@@ -18,13 +18,22 @@ services:
     ports:
       - "127.0.0.1:${MCP_PORT:-8080}:8080"
     environment:
-      - SYNCRO_API_KEY=${SYNCRO_API_KEY}
-      - SYNCRO_SUBDOMAIN=${SYNCRO_SUBDOMAIN}
       - MCP_TRANSPORT=http
       - MCP_PORT=8080
       - MCP_BASE_URL=${MCP_BASE_URL:-http://localhost:8080}
       - MCP_AUTH=${MCP_AUTH:-true}
-      - MCP_AUTH_SECRET=${MCP_AUTH_SECRET}
+      # Each user signs in with their own Syncro API key. This key encrypts
+      # their sign-in tokens. Generate with: openssl rand -hex 32
+      - MCP_TOKEN_ENCRYPTION_KEY=${MCP_TOKEN_ENCRYPTION_KEY}
+      # Only during a key rotation (see README):
+      - MCP_TOKEN_ENCRYPTION_KEY_PREVIOUS=${MCP_TOKEN_ENCRYPTION_KEY_PREVIOUS:-}
+      # Which Syncro accounts may sign in. Set ONE of these in .env:
+      #   SYNCRO_SUBDOMAIN        lock to one subdomain
+      #   MCP_ALLOWED_SUBDOMAINS  comma list, e.g. acme,beta
+      #   MCP_ALLOW_ANY_SUBDOMAIN=true
+      - SYNCRO_SUBDOMAIN=${SYNCRO_SUBDOMAIN:-}
+      - MCP_ALLOWED_SUBDOMAINS=${MCP_ALLOWED_SUBDOMAINS:-}
+      - MCP_ALLOW_ANY_SUBDOMAIN=${MCP_ALLOW_ANY_SUBDOMAIN:-}
       - MCP_TOOL_MODE=${MCP_TOOL_MODE:-flat}
       - MCP_SESSION_IDLE_MINUTES=${MCP_SESSION_IDLE_MINUTES:-60}
     read_only: true

@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { Server as HttpServer } from "node:http";
+import type { RequestHandler } from "express";
 import { SyncroApiClient } from "../src/api-client.js";
+import { hasCachedDomains } from "../src/domains/index.js";
 import {
   createHttpApp,
   MIN_EVICTION_IDLE_MS,
@@ -416,5 +418,218 @@ describe("createHttpApp — idle session cleanup", () => {
 
     controller.abort();
     await stream.body?.cancel().catch(() => {});
+  });
+});
+
+describe("createHttpApp — per-user Syncro credentials", () => {
+  let handle: HttpAppHandle;
+  let server: HttpServer;
+  let url: string;
+  const realFetch = globalThis.fetch;
+  let syncroCalls: Array<{ url: string; authorization: string | undefined }>;
+
+  const USERS: Record<string, { subdomain: string; apiKey: string }> = {
+    alice: { subdomain: "alpha", apiKey: "key-alice-123" },
+    bob: { subdomain: "bravo", apiKey: "key-bob-456" },
+  };
+
+  const testAuth: RequestHandler = (req, res, next) => {
+    const user = req.headers["x-test-user"];
+    if (user === "no-creds") {
+      req.auth = { token: "t", clientId: "c", scopes: [], expiresAt: 9e9 };
+      next();
+      return;
+    }
+    const creds = typeof user === "string" ? USERS[user] : undefined;
+    if (!creds) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    req.auth = {
+      token: `token-${user}`,
+      clientId: "client",
+      scopes: [],
+      expiresAt: 9e9,
+      extra: { syncro: creds },
+    };
+    next();
+  };
+
+  const headersFor = (user: string, sid?: string): Record<string, string> => ({
+    "content-type": "application/json",
+    accept: "application/json, text/event-stream",
+    "x-test-user": user,
+    ...(sid ? { "mcp-session-id": sid, "mcp-protocol-version": "2025-03-26" } : {}),
+  });
+
+  async function openSessionAs(user: string): Promise<Response> {
+    const res = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: headersFor(user),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "test", version: "0.0.0" },
+        },
+      }),
+    });
+    await res.text();
+    return res;
+  }
+
+  async function callAs(
+    user: string,
+    sid: string,
+    body: object
+  ): Promise<{ status: number; text: string }> {
+    const res = await fetch(`${url}/mcp`, {
+      method: "POST",
+      headers: headersFor(user, sid),
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, text: await res.text() };
+  }
+
+  const getMe = {
+    jsonrpc: "2.0",
+    id: 7,
+    method: "tools/call",
+    params: { name: "admin_get_me", arguments: {} },
+  };
+
+  async function stop() {
+    handle.shutdown();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+
+  async function start(fallback: SyncroApiClient | null) {
+    handle = createHttpApp(fallback, { toolMode: "flat", authMiddleware: testAuth });
+    const started = await listen(handle);
+    server = started.server;
+    url = started.url;
+  }
+
+  beforeEach(async () => {
+    syncroCalls = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const target = String(input);
+      if (target.includes("syncromsp.com")) {
+        const headers = (init?.headers ?? {}) as Record<string, string>;
+        syncroCalls.push({ url: target, authorization: headers.Authorization });
+        return new Response(JSON.stringify({ user: { id: 1 } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return realFetch(input, init);
+    }) as typeof fetch;
+    await start(null);
+  });
+
+  afterEach(async () => {
+    globalThis.fetch = realFetch;
+    await stop();
+  });
+
+  it("calls Syncro with the session owner's own subdomain and key", async () => {
+    const res = await openSessionAs("alice");
+    expect(res.status).toBe(200);
+    const sid = res.headers.get("mcp-session-id")!;
+
+    const call = await callAs("alice", sid, getMe);
+    expect(call.status).toBe(200);
+    expect(syncroCalls).toEqual([
+      { url: "https://alpha.syncromsp.com/api/v1/me", authorization: "Bearer key-alice-123" },
+    ]);
+  });
+
+  it("keeps users apart even after the first user loaded the tool domains", async () => {
+    const a = (await openSessionAs("alice")).headers.get("mcp-session-id")!;
+    const b = (await openSessionAs("bob")).headers.get("mcp-session-id")!;
+    await callAs("alice", a, getMe);
+    await callAs("bob", b, getMe);
+    expect(syncroCalls.map((c) => c.authorization)).toEqual([
+      "Bearer key-alice-123",
+      "Bearer key-bob-456",
+    ]);
+    expect(syncroCalls[1]!.url).toBe("https://bravo.syncromsp.com/api/v1/me");
+  });
+
+  it("returns 404 when another user presents someone else's session id", async () => {
+    const sid = (await openSessionAs("alice")).headers.get("mcp-session-id")!;
+
+    const hijack = await callAs("bob", sid, getMe);
+    expect(hijack.status).toBe(404);
+    expect(syncroCalls).toHaveLength(0);
+
+    const owner = await callAs("alice", sid, { jsonrpc: "2.0", id: 2, method: "ping" });
+    expect(owner.status).toBe(200);
+  });
+
+  it("returns the same 404 body for a hijack attempt and an unknown session", async () => {
+    const sid = (await openSessionAs("alice")).headers.get("mcp-session-id")!;
+    const hijack = await callAs("bob", sid, getMe);
+    const unknown = await callAs("bob", "00000000-0000-0000-0000-000000000000", getMe);
+    expect(hijack.status).toBe(unknown.status);
+    expect(hijack.text).toBe(unknown.text);
+  });
+
+  it("refuses to open a session when the token carries no Syncro credentials", async () => {
+    const res = await openSessionAs("no-creds");
+    expect(res.status).toBe(401);
+    expect(Object.keys(handle.sessions)).toHaveLength(0);
+  });
+
+  it("never falls back to a server-wide client when auth is on", async () => {
+    await stop();
+    await start(makeClient());
+    const res = await openSessionAs("no-creds");
+    expect(res.status).toBe(401);
+    expect(Object.keys(handle.sessions)).toHaveLength(0);
+  });
+
+  async function sessionWithLoadedDomains(user: string) {
+    const sid = (await openSessionAs(user)).headers.get("mcp-session-id")!;
+    await callAs(user, sid, getMe);
+    const client = handle.sessions[sid]!.client;
+    expect(hasCachedDomains(client)).toBe(true);
+    return { sid, client };
+  }
+
+  it("drops the per-user domain cache when the idle sweep closes a session", async () => {
+    const { sid, client } = await sessionWithLoadedDomains("alice");
+    handle.sweepIdleSessions(Date.now() + 2 * 60 * 60 * 1000);
+    expect(handle.sessions[sid]).toBeUndefined();
+    expect(hasCachedDomains(client)).toBe(false);
+  });
+
+  it("drops the per-user domain cache when a session is evicted at the cap", async () => {
+    await stop();
+    handle = createHttpApp(null, { toolMode: "flat", authMiddleware: testAuth, maxSessions: 1 });
+    const started = await listen(handle);
+    server = started.server;
+    url = started.url;
+
+    const { sid, client } = await sessionWithLoadedDomains("alice");
+    handle.sessions[sid] = {
+      ...handle.sessions[sid]!,
+      lastActivity: Date.now() - MIN_EVICTION_IDLE_MS - 1000,
+    };
+    expect((await openSessionAs("bob")).status).toBe(200);
+    expect(handle.sessions[sid]).toBeUndefined();
+    expect(hasCachedDomains(client)).toBe(false);
+  });
+
+  it("drops the per-user domain cache when the client deletes its session", async () => {
+    const { sid, client } = await sessionWithLoadedDomains("alice");
+    const res = await fetch(`${url}/mcp`, { method: "DELETE", headers: headersFor("alice", sid) });
+    await res.text();
+    expect(handle.sessions[sid]).toBeUndefined();
+    expect(hasCachedDomains(client)).toBe(false);
   });
 });
