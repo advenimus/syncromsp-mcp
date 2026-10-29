@@ -14,8 +14,9 @@ for (const [subnet, prefix] of [
 ] as const) {
   BLOCKED_ADDRESSES.addSubnet(subnet, prefix, "ipv4");
 }
+// ::/96 (IPv4-compatible), Teredo (2001::/32) and 6to4 (2002::/16) all embed IPv4 addresses
 for (const [subnet, prefix] of [
-  ["::", 128], ["::1", 128], ["64:ff9b::", 96], ["fc00::", 7], ["fe80::", 10], ["ff00::", 8],
+  ["::", 96], ["64:ff9b::", 96], ["2001::", 32], ["2002::", 16], ["fc00::", 7], ["fe80::", 10], ["ff00::", 8],
 ] as const) {
   BLOCKED_ADDRESSES.addSubnet(subnet, prefix, "ipv6");
 }

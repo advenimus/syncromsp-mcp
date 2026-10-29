@@ -56,6 +56,7 @@ async function setUpOAuth(mcpServerUrl: URL): Promise<AuthWiring> {
     encryptionKey: config.encryptionKey,
     previousEncryptionKeys: config.previousEncryptionKeys,
     subdomainPolicy: config.subdomainPolicy,
+    redirectRules: config.redirectRules,
   });
 
   const { authMiddleware, installRoutes } = createOAuthWiring(provider, mcpServerUrl);
@@ -68,8 +69,23 @@ async function setUpOAuth(mcpServerUrl: URL): Promise<AuthWiring> {
         ? `${policy.subdomains.size} allowed subdomain(s)`
         : "any subdomain";
   console.error(`OAuth enabled: users sign in with their own Syncro API key (${scope}).`);
+  if (config.redirectRules) {
+    console.error(`Client redirects limited to ${config.redirectRules.length} allowed URL(s).`);
+  }
   console.error(`Issuer: ${mcpServerUrl}`);
   return { authMiddleware, installer: installRoutes };
+}
+
+const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+
+function allowedHostsFor(baseUrl: URL): string[] {
+  const extra = (process.env.MCP_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter((h) => h.length > 0);
+  const base = baseUrl.hostname.toLowerCase();
+  const loopback = LOOPBACK_HOSTS.includes(base) ? LOOPBACK_HOSTS : [];
+  return [...new Set([base, ...loopback, ...extra])];
 }
 
 async function startHttp(): Promise<void> {
@@ -130,6 +146,7 @@ async function startHttp(): Promise<void> {
     idleTimeoutMs: idleMinutes !== undefined ? idleMinutes * 60 * 1000 : undefined,
     maxSessionsPerUser,
     serverRateLimitPerMinute,
+    allowedHosts: allowedHostsFor(mcpServerUrl),
     preMcpRouteInstaller: wiring?.installer,
   });
 

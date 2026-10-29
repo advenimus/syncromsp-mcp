@@ -17,6 +17,7 @@ import {
 } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import { createSealer, type Sealer } from "./token-crypto.js";
 import { StatelessClientsStore } from "./client-store.js";
+import type { RedirectRule } from "./redirect-policy.js";
 import {
   ACCESS_TOKEN_TTL_MS,
   REFRESH_TOKEN_TTL_MS,
@@ -64,6 +65,7 @@ export interface McpOAuthProviderOptions {
   encryptionKey: Buffer;
   previousEncryptionKeys?: readonly Buffer[];
   subdomainPolicy: SubdomainPolicy;
+  redirectRules?: readonly RedirectRule[];
   now?: () => number;
   verifyTimeoutMs?: number;
 }
@@ -112,7 +114,10 @@ export class McpOAuthProvider implements OAuthServerProvider {
   constructor(options: McpOAuthProviderOptions) {
     const keys = [options.encryptionKey, ...(options.previousEncryptionKeys ?? [])];
     this.tokenSealer = createSealer("token", keys);
-    this.clientsStore = new StatelessClientsStore(createSealer("client", keys));
+    this.clientsStore = new StatelessClientsStore(
+      createSealer("client", keys),
+      options.redirectRules
+    );
     this.policy = options.subdomainPolicy;
     this.now = options.now ?? Date.now;
     this.verifyTimeoutMs = options.verifyTimeoutMs;

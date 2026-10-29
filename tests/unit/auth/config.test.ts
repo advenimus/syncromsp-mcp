@@ -144,3 +144,22 @@ describe("loadHttpAuthConfig — legacy settings", () => {
     expect(loadHttpAuthConfig(env({})).warnings).toEqual([]);
   });
 });
+
+describe("loadHttpAuthConfig — redirect allowlist", () => {
+  it("is off unless MCP_ALLOWED_REDIRECT_URIS is set", () => {
+    expect(loadHttpAuthConfig(env({})).redirectRules).toBeUndefined();
+  });
+
+  it("parses the list", () => {
+    const config = loadHttpAuthConfig(
+      env({ MCP_ALLOWED_REDIRECT_URIS: "https://claude.ai/api/mcp/auth_callback, http://localhost" })
+    );
+    expect(config.redirectRules).toHaveLength(2);
+  });
+
+  it("fails hard on a bad entry", () => {
+    expect(() =>
+      loadHttpAuthConfig(env({ MCP_ALLOWED_REDIRECT_URIS: "ftp://nope" }))
+    ).toThrow(AuthConfigError);
+  });
+});

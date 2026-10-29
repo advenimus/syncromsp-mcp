@@ -324,6 +324,8 @@ Older versions used one shared password (`MCP_AUTH_SECRET`) and one server-wide 
 | `MCP_I_UNDERSTAND_INSECURE` | If `MCP_AUTH=false` | — | Must be `true` to start the server with auth disabled. Foot-gun guard. |
 | `MCP_TOOL_MODE` | No | `flat` | `flat` (all tools) or `navigation` (lazy domains) |
 | `MCP_SESSION_IDLE_MINUTES` | No | `60` | HTTP sessions unused this long are closed (checked every 5 minutes). Clients reconnect automatically. |
+| `MCP_ALLOWED_REDIRECT_URIS` | Recommended | — | Comma list of client return addresses allowed to register, e.g. `https://claude.ai/api/mcp/auth_callback,http://localhost`. Blocks sign-in phishing through look-alike clients. An entry without a port allows any port. |
+| `MCP_ALLOWED_HOSTS` | No | — | Extra host names the server answers to besides the `MCP_BASE_URL` host. Requests for any other host get 421 (blocks DNS rebinding). |
 | `MCP_SERVER_RATE_LIMIT_PER_MINUTE` | No | `180` | Syncro calls per minute from this whole server, on top of each tenant's own 180/min budget. Syncro documents its limit per IP, and all tenants share the server's IP. Raise it only if you know Syncro counts your tenants separately. |
 | `MCP_MAX_SESSIONS_PER_USER` | No | `25` | Open HTTP sessions one signed-in user may hold. Past it, that user's least recently used session idle for at least a minute is closed; if none qualifies, the new one gets a 429. |
 

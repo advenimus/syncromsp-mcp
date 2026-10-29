@@ -1,5 +1,6 @@
 import { EncryptionKeyError, parseEncryptionKey } from "./token-crypto.js";
 import { isValidSubdomain, type SubdomainPolicy } from "./subdomain.js";
+import { parseRedirectAllowlist, type RedirectRule } from "./redirect-policy.js";
 
 export class AuthConfigError extends Error {
   constructor(message: string) {
@@ -12,6 +13,7 @@ export interface HttpAuthConfig {
   encryptionKey: Buffer;
   previousEncryptionKeys: Buffer[];
   subdomainPolicy: SubdomainPolicy;
+  redirectRules?: RedirectRule[];
   warnings: string[];
 }
 
@@ -97,11 +99,28 @@ function legacyWarnings(env: NodeJS.ProcessEnv): string[] {
   return warnings;
 }
 
+function parseRedirectRules(env: NodeJS.ProcessEnv): RedirectRule[] | undefined {
+  const raw = env.MCP_ALLOWED_REDIRECT_URIS;
+  if (raw === undefined || raw.trim() === "") return undefined;
+  try {
+    return parseRedirectAllowlist(raw);
+  } catch (error) {
+    throw new AuthConfigError(error instanceof Error ? error.message : String(error));
+  }
+}
+
 /** Reads and validates everything HTTP auth mode needs. Throws AuthConfigError on bad config. */
 export function loadHttpAuthConfig(env: NodeJS.ProcessEnv): HttpAuthConfig {
   const encryptionKey = parseKey(env.MCP_TOKEN_ENCRYPTION_KEY, "MCP_TOKEN_ENCRYPTION_KEY");
   const previousEncryptionKeys = parsePreviousKeys(env, encryptionKey);
   const warnings = legacyWarnings(env);
   const subdomainPolicy = parseSubdomainPolicy(env, warnings);
-  return { encryptionKey, previousEncryptionKeys, subdomainPolicy, warnings };
+  const redirectRules = parseRedirectRules(env);
+  return {
+    encryptionKey,
+    previousEncryptionKeys,
+    subdomainPolicy,
+    ...(redirectRules ? { redirectRules } : {}),
+    warnings,
+  };
 }
