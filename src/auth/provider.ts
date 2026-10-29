@@ -164,7 +164,11 @@ export class McpOAuthProvider implements OAuthServerProvider {
       return;
     }
 
-    if (!this.loginLimiter.tryConsume(input.ip, this.now())) {
+    // Taken before the Syncro check so parallel guesses can't all slip past
+    // the limit; refunded on success so a team behind one NAT isn't locked
+    // out by its own sign-ins.
+    const attemptAt = this.now();
+    if (!this.loginLimiter.tryConsume(input.ip, attemptAt)) {
       console.error("Sign-in rejected: too many attempts from one address");
       sendHtml(
         res,
@@ -189,6 +193,7 @@ export class McpOAuthProvider implements OAuthServerProvider {
       return;
     }
 
+    this.loginLimiter.refund(input.ip, attemptAt);
     res.redirect(this.issueCode(pending, creds));
   }
 
@@ -248,7 +253,8 @@ export class McpOAuthProvider implements OAuthServerProvider {
       throw new InvalidScopeError("Requested scope exceeds the original grant");
     }
     this.denylist.add(`jti:${payload.jti}`, payload.exp);
-    return this.mintTokens(grantFromPayload(payload));
+    // RFC 6749 section 6: the access token may be narrowed, the refresh token keeps the original scope.
+    return this.mintTokens(grantFromPayload(payload), scopes);
   }
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
@@ -291,16 +297,16 @@ export class McpOAuthProvider implements OAuthServerProvider {
     this.denylist.add(`fam:${payload.fam}`, this.now() + REFRESH_TOKEN_TTL_MS);
   }
 
-  private mintTokens(grant: TokenGrant): OAuthTokens {
+  private mintTokens(grant: TokenGrant, accessScopes: string[] = grant.scopes): OAuthTokens {
     const now = this.now();
-    const access = issueToken(this.tokenSealer, "access", grant, now);
+    const access = issueToken(this.tokenSealer, "access", { ...grant, scopes: accessScopes }, now);
     const refresh = issueToken(this.tokenSealer, "refresh", grant, now);
     return {
       access_token: access.token,
       token_type: "bearer",
       expires_in: Math.floor(ACCESS_TOKEN_TTL_MS / 1000),
       refresh_token: refresh.token,
-      scope: grant.scopes.join(" "),
+      scope: accessScopes.join(" "),
     };
   }
 
@@ -327,7 +333,12 @@ export class McpOAuthProvider implements OAuthServerProvider {
     rawSubdomain: unknown,
     rawApiKey: unknown
   ): Promise<SyncroCredentials | undefined> {
-    const subdomain = this.policy.kind === "locked" ? this.policy.subdomain : rawSubdomain;
+    const subdomain =
+      this.policy.kind === "locked"
+        ? this.policy.subdomain
+        : typeof rawSubdomain === "string"
+          ? rawSubdomain.trim().toLowerCase()
+          : undefined;
     if (typeof subdomain !== "string" || !isSubdomainAllowed(this.policy, subdomain)) {
       return undefined;
     }

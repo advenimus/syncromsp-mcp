@@ -23,6 +23,17 @@ export class AttemptLimiter {
     return this.attempts.size;
   }
 
+  /** Gives back one attempt taken at `at`, e.g. once it turns out to have succeeded. */
+  refund(key: string, at: number): void {
+    const attempts = this.attempts.get(key);
+    if (!attempts) return;
+    const index = attempts.lastIndexOf(at);
+    if (index === -1) return;
+    const remaining = [...attempts.slice(0, index), ...attempts.slice(index + 1)];
+    if (remaining.length === 0) this.attempts.delete(key);
+    else this.attempts.set(key, remaining);
+  }
+
   tryConsume(key: string, now: number = Date.now()): boolean {
     const recent = this.recentAttempts(key, now);
     if (recent.length >= this.max) {

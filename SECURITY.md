@@ -42,7 +42,7 @@ This MCP server is designed to be exposed to the public internet to allow connec
 - The subdomain must match `^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`. The server always builds `https://<subdomain>.syncromsp.com` itself and does not follow redirects, so the sign-in check can't be turned into a request to another host (SSRF).
 - `SYNCRO_SUBDOMAIN` locks sign-in to one subdomain; otherwise `MCP_ALLOWED_SUBDOMAINS` or an explicit `MCP_ALLOW_ANY_SUBDOMAIN=true` is required. The server refuses to start without one of them.
 - The verification call has a 5 second timeout. Only a 2xx passes. Every failure (bad subdomain, not allowed, 401, timeout, network error) shows the same generic message.
-- Sign-in attempts are limited to 5 per IP per 15 minutes (in memory). Each pending sign-in accepts exactly one attempt.
+- Failed sign-in attempts are limited to 5 per IP per 15 minutes (in memory). Successful sign-ins do not count. Each pending sign-in accepts exactly one attempt.
 - The key is never placed in a URL, a log line, or an error page. Errors from Syncro calls are scrubbed of the key before they reach the MCP client. Auth codes hold the verified credentials in memory for at most 10 minutes, until they are exchanged.
 
 ## Operator Responsibilities
@@ -82,7 +82,7 @@ Registration is open, so anyone can register a client with their own `redirect_u
 | Authorization | Bearer token required on `/mcp`; 1h access / 30d refresh with rotation and reuse detection; sessions bound to their owner; Syncro per-key permissions |
 | Anti-phishing | Sign-in page displays client name + redirect_uri; HTML-escaped; CSP `default-src 'none'` |
 | SSRF | Strict single-label subdomain; host always `*.syncromsp.com`; redirects not followed |
-| Rate limiting | 5 sign-in attempts / 15 min / IP; 100/15min on `/authorize`; 20/hr on `/register` (MCP SDK) |
+| Rate limiting | 5 failed sign-in attempts / 15 min / IP; 100/15min on `/authorize`; 20/hr on `/register` (MCP SDK) |
 | Container | non-root, read-only rootfs, all capabilities dropped, no-new-privileges, tmpfs `/tmp` |
 | Supply chain | Pinned image versions; npm ci against committed lockfile |
 

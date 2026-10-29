@@ -9,6 +9,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { SyncroApiClient } from "./api-client.js";
+import { RateLimiter } from "./utils/rate-limiter.js";
 import { createServer, type ToolMode } from "./server.js";
 import {
   createFingerprinter,
@@ -231,8 +232,12 @@ export function createHttpApp(
     return sameFingerprint(entry.owner, requester.owner);
   };
 
+  // Syncro's limit applies to this server's outbound traffic as a whole, so
+  // per-session clients must draw from one bucket rather than one each.
+  const upstreamLimiter = new RateLimiter();
+
   const clientFor = (requester: Requester): SyncroApiClient | null => {
-    if (requester.creds) return new SyncroApiClient(requester.creds);
+    if (requester.creds) return new SyncroApiClient(requester.creds, upstreamLimiter);
     return requireUserCredentials ? null : fallbackClient;
   };
 

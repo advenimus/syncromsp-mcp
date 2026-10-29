@@ -180,7 +180,7 @@ Client connects → 401 Unauthorized
 - **Each session uses its owner's key.** A session is bound to the key that opened it. Another user presenting that session id gets a 404.
 - Access tokens last 1 hour. Refresh tokens last 30 days and are replaced on every use. Reusing an old refresh token cancels that whole sign-in.
 - The subdomain must be a plain name like `mycompany`. The server always builds `https://<subdomain>.syncromsp.com` itself, so it cannot be pointed at another host.
-- Sign-in attempts are limited to 5 per IP address per 15 minutes.
+- Failed sign-in attempts are limited to 5 per IP address per 15 minutes. Successful sign-ins do not count.
 - The key is never put in a URL, a log line, or an error message.
 - The sign-in page shows the `redirect_uri` so users can check where they will be sent (anti-phishing).
 

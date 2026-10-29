@@ -232,6 +232,21 @@ describe("SyncroApiClient", () => {
     fetchSpy.mockRestore();
   });
 
+  it("redacts a key containing JSON-escaped characters from error details", async () => {
+    const apiKey = 'T-quote"back\\slash-key';
+    const client = new SyncroApiClient({ apiKey, subdomain: "mycompany" });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: `Token ${apiKey} is not valid` }), { status: 401 })
+    );
+
+    const error = (await client.get("/me").catch((e: unknown) => e)) as SyncroApiError;
+    expect(error.message).not.toContain(apiKey);
+    expect(JSON.stringify(error.details ?? {})).not.toContain(JSON.stringify(apiKey).slice(1, -1));
+    expect((error.details as { error?: string }).error).toBe("Token [redacted] is not valid");
+
+    fetchSpy.mockRestore();
+  });
+
   it("redacts the API key from network errors", async () => {
     const apiKey = "T-network-secret-key-456";
     const client = new SyncroApiClient({ apiKey, subdomain: "mycompany" });

@@ -17,12 +17,12 @@ export class SyncroApiClient {
   private readonly apiKey: string;
   private readonly rateLimiter: RateLimiter;
 
-  constructor(config: SyncroApiConfig) {
+  constructor(config: SyncroApiConfig, rateLimiter: RateLimiter = new RateLimiter()) {
     if (!config.apiKey) throw new Error("SYNCRO_API_KEY is required");
     if (!config.subdomain) throw new Error("SYNCRO_SUBDOMAIN is required");
     this.baseUrl = `https://${config.subdomain}.syncromsp.com/api/v1`;
     this.apiKey = config.apiKey;
-    this.rateLimiter = new RateLimiter(180);
+    this.rateLimiter = rateLimiter;
   }
 
   private buildUrl(path: string, params?: Record<string, string | number | boolean | undefined>): string {
@@ -96,7 +96,18 @@ export class SyncroApiClient {
   }
 
   private redactDetails(details: SyncroErrorResponse): SyncroErrorResponse {
-    return JSON.parse(this.redact(JSON.stringify(details))) as SyncroErrorResponse;
+    return this.redactValue(details) as SyncroErrorResponse;
+  }
+
+  private redactValue(value: unknown): unknown {
+    if (typeof value === "string") return this.redact(value);
+    if (Array.isArray(value)) return value.map((v) => this.redactValue(v));
+    if (value !== null && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [this.redact(k), this.redactValue(v)])
+      );
+    }
+    return value;
   }
 
   private formatErrorMessage(status: number, details?: SyncroErrorResponse): string {

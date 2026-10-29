@@ -25,14 +25,17 @@ const domainLoaders: Record<DomainName, () => Promise<{ createDomain: (client: S
 };
 
 export async function loadDomain(name: DomainName, client: SyncroApiClient): Promise<DomainHandler> {
-  const perClient = domainCache.get(client) ?? new Map<DomainName, DomainHandler>();
-  const cached = perClient.get(name);
+  const cached = domainCache.get(client)?.get(name);
   if (cached) return cached;
 
   const loader = domainLoaders[name];
   if (!loader) throw new Error(`Unknown domain: ${name}`);
 
   const module = await loader();
+  // Re-read after the await so a concurrent load of another domain isn't overwritten.
+  const perClient = domainCache.get(client) ?? new Map<DomainName, DomainHandler>();
+  const raced = perClient.get(name);
+  if (raced) return raced;
   const handler = module.createDomain(client);
   domainCache.set(client, new Map(perClient).set(name, handler));
   return handler;

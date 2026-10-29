@@ -313,7 +313,7 @@ describe("sign-in callback", () => {
     const rejected = await h.submit(pendingIdFrom(login.body));
     fetchMock.mockClear();
 
-    for (const subdomain of ["evil.com/", "a.b", "-x", "ACME", "ãcme", "@", ""]) {
+    for (const subdomain of ["evil.com/", "a.b", "-x", "ãcme", "@", "", " ", "ac me"]) {
       const page = await h.openLogin(await h.register());
       const cb = await h.submit(pendingIdFrom(page.body), {
         subdomain,
@@ -323,6 +323,13 @@ describe("sign-in callback", () => {
       expect(stripIds(cb.body)).toBe(stripIds(rejected.body));
     }
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("trims and lowercases the typed subdomain before checking it", async () => {
+    const login = await h.openLogin(await h.register());
+    const cb = await h.submit(pendingIdFrom(login.body), { subdomain: "  ACME " });
+    expect(cb.redirectUrl).toBeDefined();
+    expect(String(fetchMock.mock.calls[0]![0])).toBe("https://acme.syncromsp.com/api/v1/me");
   });
 
   it("rejects a subdomain outside the allowlist without calling out", async () => {
@@ -404,6 +411,33 @@ describe("sign-in callback", () => {
     const page = await h.openLogin(client);
     const cb = await h.submit(pendingIdFrom(page.body), { ip: "192.0.2.9" });
     expect(cb.redirectUrl).toBeDefined();
+  });
+
+  it("does not count successful sign-ins toward the limit", async () => {
+    syncroReplies(200);
+    const client = await h.register();
+    for (let i = 0; i < 6; i++) {
+      const page = await h.openLogin(client);
+      const cb = await h.submit(pendingIdFrom(page.body), { ip: "192.0.2.50" });
+      expect(cb.redirectUrl).toBeDefined();
+    }
+  });
+
+  it("counts guesses sent at the same time, so parallel requests can't skip the limit", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    fetchMock.mockImplementation(async () => {
+      await gate;
+      return new Response(null, { status: 401 });
+    });
+    const client = await h.register();
+    const pages = await Promise.all(Array.from({ length: 10 }, () => h.openLogin(client)));
+    const inFlight = pages.map((p) => h.submit(pendingIdFrom(p.body), { ip: "192.0.2.77" }));
+    release();
+    const results = await Promise.all(inFlight);
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(results.filter((r) => r.statusCode === 429)).toHaveLength(5);
   });
 
   it("returns 400 for an unknown pending id", async () => {
@@ -660,6 +694,17 @@ describe("refresh rotation and revocation", () => {
     await expect(
       h.provider.exchangeRefreshToken(client, tokens.refresh_token!, ["mcp:tools", "admin"])
     ).rejects.toThrow();
+  });
+
+  it("narrows only the access token when refresh asks for fewer scopes", async () => {
+    const { client, tokens } = await h.getTokens();
+    const narrowed = await h.provider.exchangeRefreshToken(client, tokens.refresh_token!, []);
+    expect(narrowed.scope).toBe("");
+    const info = await h.provider.verifyAccessToken(narrowed.access_token);
+    expect(info.scopes).toEqual([]);
+
+    const again = await h.provider.exchangeRefreshToken(client, narrowed.refresh_token!);
+    expect(again.scope).toBe("mcp:tools");
   });
 
   it("revoking an access token makes it unusable", async () => {
