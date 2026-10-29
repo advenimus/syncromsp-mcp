@@ -1,5 +1,5 @@
 import type { SyncroApiConfig, SyncroErrorResponse } from "./types.js";
-import { RateLimiter } from "./utils/rate-limiter.js";
+import { RateLimiter, type Limiter } from "./utils/rate-limiter.js";
 
 export class SyncroApiError extends Error {
   constructor(
@@ -15,9 +15,9 @@ export class SyncroApiError extends Error {
 export class SyncroApiClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
-  private readonly rateLimiter: RateLimiter;
+  private readonly rateLimiter: Limiter;
 
-  constructor(config: SyncroApiConfig, rateLimiter: RateLimiter = new RateLimiter()) {
+  constructor(config: SyncroApiConfig, rateLimiter: Limiter = new RateLimiter()) {
     if (!config.apiKey) throw new Error("SYNCRO_API_KEY is required");
     if (!config.subdomain) throw new Error("SYNCRO_SUBDOMAIN is required");
     this.baseUrl = `https://${config.subdomain}.syncromsp.com/api/v1`;

@@ -97,6 +97,24 @@ async function startHttp(): Promise<void> {
     fail("ERROR: MCP_SESSION_IDLE_MINUTES must be a positive number.");
   }
 
+  const perUserRaw = process.env.MCP_MAX_SESSIONS_PER_USER;
+  const maxSessionsPerUser = perUserRaw ? Number(perUserRaw) : undefined;
+  if (
+    maxSessionsPerUser !== undefined &&
+    !(Number.isInteger(maxSessionsPerUser) && maxSessionsPerUser > 0)
+  ) {
+    fail("ERROR: MCP_MAX_SESSIONS_PER_USER must be a positive whole number.");
+  }
+
+  const serverRateRaw = process.env.MCP_SERVER_RATE_LIMIT_PER_MINUTE;
+  const serverRateLimitPerMinute = serverRateRaw ? Number(serverRateRaw) : undefined;
+  if (
+    serverRateLimitPerMinute !== undefined &&
+    !(Number.isInteger(serverRateLimitPerMinute) && serverRateLimitPerMinute > 0)
+  ) {
+    fail("ERROR: MCP_SERVER_RATE_LIMIT_PER_MINUTE must be a positive whole number.");
+  }
+
   const { createHttpApp } = await import("./http-app.js");
   const wiring = useAuth ? await setUpOAuth(mcpServerUrl) : undefined;
   const fallbackClient = useAuth ? null : clientFromEnv();
@@ -110,6 +128,8 @@ async function startHttp(): Promise<void> {
     toolMode,
     authMiddleware: wiring?.authMiddleware,
     idleTimeoutMs: idleMinutes !== undefined ? idleMinutes * 60 * 1000 : undefined,
+    maxSessionsPerUser,
+    serverRateLimitPerMinute,
     preMcpRouteInstaller: wiring?.installer,
   });
 

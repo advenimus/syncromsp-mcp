@@ -1,4 +1,8 @@
-export class RateLimiter {
+export interface Limiter {
+  acquire(): Promise<void>;
+}
+
+export class RateLimiter implements Limiter {
   private tokens: number;
   private lastRefill: number;
   private readonly maxTokens: number;

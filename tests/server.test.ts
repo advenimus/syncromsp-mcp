@@ -7,6 +7,7 @@ import { hasCachedDomains } from "../src/domains/index.js";
 import {
   createHttpApp,
   MIN_EVICTION_IDLE_MS,
+  MIN_USER_EVICTION_IDLE_MS,
   type HttpAppHandle,
 } from "../src/http-app.js";
 
@@ -431,6 +432,7 @@ describe("createHttpApp — per-user Syncro credentials", () => {
   const USERS: Record<string, { subdomain: string; apiKey: string }> = {
     alice: { subdomain: "alpha", apiKey: "key-alice-123" },
     bob: { subdomain: "bravo", apiKey: "key-bob-456" },
+    carol: { subdomain: "alpha", apiKey: "key-carol-789" },
   };
 
   const testAuth: RequestHandler = (req, res, next) => {
@@ -507,8 +509,12 @@ describe("createHttpApp — per-user Syncro credentials", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 
-  async function start(fallback: SyncroApiClient | null) {
-    handle = createHttpApp(fallback, { toolMode: "flat", authMiddleware: testAuth });
+  async function start(fallback: SyncroApiClient | null, maxSessionsPerUser?: number) {
+    handle = createHttpApp(fallback, {
+      toolMode: "flat",
+      authMiddleware: testAuth,
+      ...(maxSessionsPerUser !== undefined ? { maxSessionsPerUser } : {}),
+    });
     const started = await listen(handle);
     server = started.server;
     url = started.url;
@@ -631,5 +637,67 @@ describe("createHttpApp — per-user Syncro credentials", () => {
     await res.text();
     expect(handle.sessions[sid]).toBeUndefined();
     expect(hasCachedDomains(client)).toBe(false);
+  });
+
+  const age = (sid: string, ms: number) => {
+    handle.sessions[sid] = { ...handle.sessions[sid]!, lastActivity: Date.now() - ms };
+  };
+
+  const limiterOf = (sid: string) =>
+    (handle.sessions[sid]!.client as unknown as { rateLimiter: unknown }).rateLimiter;
+
+  it("shares one Syncro rate budget per tenant, separate across tenants", async () => {
+    const a = (await openSessionAs("alice")).headers.get("mcp-session-id")!;
+    const c = (await openSessionAs("carol")).headers.get("mcp-session-id")!;
+    const b = (await openSessionAs("bob")).headers.get("mcp-session-id")!;
+    expect(limiterOf(a)).toBe(limiterOf(c));
+    expect(limiterOf(a)).not.toBe(limiterOf(b));
+  });
+
+  it("caps sessions per user by closing that user's oldest idle session", async () => {
+    await stop();
+    await start(null, 2);
+    const bob = (await openSessionAs("bob")).headers.get("mcp-session-id")!;
+    const first = (await openSessionAs("alice")).headers.get("mcp-session-id")!;
+    const second = (await openSessionAs("alice")).headers.get("mcp-session-id")!;
+    age(first, MIN_USER_EVICTION_IDLE_MS + 2000);
+    age(second, MIN_USER_EVICTION_IDLE_MS + 1000);
+    const third = await openSessionAs("alice");
+
+    expect(third.status).toBe(200);
+    const ids = Object.keys(handle.sessions);
+    expect(ids).not.toContain(first);
+    expect(ids).toContain(second);
+    expect(ids).toContain(third.headers.get("mcp-session-id")!);
+    expect(ids).toContain(bob);
+  });
+
+  it("returns 429 instead of closing a session the user used in the last minute", async () => {
+    await stop();
+    await start(null, 1);
+    const sid = (await openSessionAs("alice")).headers.get("mcp-session-id")!;
+    const res = await openSessionAs("alice");
+    expect(res.status).toBe(429);
+    expect(Object.keys(handle.sessions)).toEqual([sid]);
+  });
+
+  it("returns 429 when every one of the user's sessions is busy", async () => {
+    await stop();
+    await start(null, 1);
+    const sid = (await openSessionAs("alice")).headers.get("mcp-session-id")!;
+    const controller = new AbortController();
+    const stream = await fetch(`${url}/mcp`, {
+      method: "GET",
+      headers: { ...headersFor("alice", sid), accept: "text/event-stream" },
+      signal: controller.signal,
+    });
+    expect(stream.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 20));
+
+    const res = await openSessionAs("alice");
+    expect(res.status).toBe(429);
+    expect(Object.keys(handle.sessions)).toEqual([sid]);
+    expect((await openSessionAs("bob")).status).toBe(200);
+    controller.abort();
   });
 });

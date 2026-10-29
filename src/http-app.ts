@@ -9,7 +9,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { SyncroApiClient } from "./api-client.js";
-import { RateLimiter } from "./utils/rate-limiter.js";
+import { TenantLimiters } from "./utils/tenant-limiters.js";
 import { createServer, type ToolMode } from "./server.js";
 import {
   createFingerprinter,
@@ -20,14 +20,18 @@ import type { SyncroCredentials } from "./auth/subdomain.js";
 import { releaseDomains } from "./domains/index.js";
 
 export const DEFAULT_MAX_SESSIONS = 1000;
+export const DEFAULT_MAX_SESSIONS_PER_USER = 25;
 export const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 export const DEFAULT_SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 export const MIN_EVICTION_IDLE_MS = 5 * 60 * 1000;
+export const MIN_USER_EVICTION_IDLE_MS = 60 * 1000;
 
 export interface HttpAppOptions {
   toolMode: ToolMode;
   authMiddleware?: RequestHandler;
   maxSessions?: number;
+  maxSessionsPerUser?: number;
+  serverRateLimitPerMinute?: number;
   idleTimeoutMs?: number;
   sweepIntervalMs?: number;
   /**
@@ -76,6 +80,8 @@ export function createHttpApp(
     toolMode,
     authMiddleware,
     maxSessions = DEFAULT_MAX_SESSIONS,
+    maxSessionsPerUser = DEFAULT_MAX_SESSIONS_PER_USER,
+    serverRateLimitPerMinute,
     idleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS,
     sweepIntervalMs = DEFAULT_SESSION_SWEEP_INTERVAL_MS,
     preMcpRouteInstaller,
@@ -83,6 +89,9 @@ export function createHttpApp(
 
   if (!(idleTimeoutMs > 0) || !(sweepIntervalMs > 0)) {
     throw new Error("idleTimeoutMs and sweepIntervalMs must be positive numbers");
+  }
+  if (!Number.isInteger(maxSessionsPerUser) || maxSessionsPerUser < 1) {
+    throw new Error("maxSessionsPerUser must be a positive integer");
   }
 
   const app = express();
@@ -165,19 +174,48 @@ export function createHttpApp(
     }
   };
 
+  const leastRecentlyUsed = (
+    candidates: Array<[string, SessionEntry]>
+  ): [string, SessionEntry] | undefined =>
+    candidates.reduce<[string, SessionEntry] | undefined>(
+      (acc, cur) => (!acc || cur[1].lastActivity < acc[1].lastActivity ? cur : acc),
+      undefined
+    );
+
   // Only sessions quiet for a while are fair game, so a burst of new
   // connections can't kick out someone mid-conversation.
   const evictLeastRecentlyUsed = (now: number = Date.now()): boolean => {
     const cutoff = now - MIN_EVICTION_IDLE_MS;
-    const oldest = Object.entries(sessions)
-      .filter(([, entry]) => !isBusy(entry) && entry.lastActivity <= cutoff)
-      .reduce<[string, SessionEntry] | undefined>(
-        (acc, cur) => (!acc || cur[1].lastActivity < acc[1].lastActivity ? cur : acc),
-        undefined
-      );
+    const oldest = leastRecentlyUsed(
+      Object.entries(sessions).filter(
+        ([, entry]) => !isBusy(entry) && entry.lastActivity <= cutoff
+      )
+    );
     if (!oldest) return false;
     console.error(
       `Session cap reached (${maxSessions}); evicting least recently used session`
+    );
+    closeSession(oldest[0]);
+    return true;
+  };
+
+  // One user's sessions can't crowd out everyone else: past their own cap,
+  // their least recently used non-busy session makes way for the new one.
+  const hasRoomForUser = (owner: string | null, now: number = Date.now()): boolean => {
+    if (owner === null) return true;
+    const own = Object.entries(sessions).filter(
+      ([, e]) => e.owner !== null && sameFingerprint(e.owner, owner)
+    );
+    if (own.length < maxSessionsPerUser) return true;
+    // A short idle floor stops a user with more live clients than the cap
+    // from endlessly bumping their own active sessions.
+    const cutoff = now - MIN_USER_EVICTION_IDLE_MS;
+    const oldest = leastRecentlyUsed(
+      own.filter(([, e]) => !isBusy(e) && e.lastActivity <= cutoff)
+    );
+    if (!oldest) return false;
+    console.error(
+      `Per-user session cap reached (${maxSessionsPerUser}); closing that user's least recently used session`
     );
     closeSession(oldest[0]);
     return true;
@@ -232,12 +270,12 @@ export function createHttpApp(
     return sameFingerprint(entry.owner, requester.owner);
   };
 
-  // Syncro's limit applies to this server's outbound traffic as a whole, so
-  // per-session clients must draw from one bucket rather than one each.
-  const upstreamLimiter = new RateLimiter();
+  const tenantLimiters = new TenantLimiters({ serverPerMinute: serverRateLimitPerMinute });
 
   const clientFor = (requester: Requester): SyncroApiClient | null => {
-    if (requester.creds) return new SyncroApiClient(requester.creds, upstreamLimiter);
+    if (requester.creds) {
+      return new SyncroApiClient(requester.creds, tenantLimiters.for(requester.creds.subdomain));
+    }
     return requireUserCredentials ? null : fallbackClient;
   };
 
@@ -250,6 +288,13 @@ export function createHttpApp(
         console.error("No Syncro client configured for unauthenticated HTTP mode");
         res.status(500).json({ error: "Internal server error" });
       }
+      return;
+    }
+    if (!hasRoomForUser(requester.owner)) {
+      console.error(
+        `Per-user session cap reached (${maxSessionsPerUser}); all recently active, rejecting`
+      );
+      res.status(429).json({ error: "Too many open sessions for this user" });
       return;
     }
     if (!hasRoomForNewSession()) {
