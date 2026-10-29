@@ -24,12 +24,14 @@ export const DEFAULT_MAX_SESSIONS_PER_USER = 25;
 export const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 export const DEFAULT_SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 export const MIN_EVICTION_IDLE_MS = 5 * 60 * 1000;
+export const MIN_USER_EVICTION_IDLE_MS = 60 * 1000;
 
 export interface HttpAppOptions {
   toolMode: ToolMode;
   authMiddleware?: RequestHandler;
   maxSessions?: number;
   maxSessionsPerUser?: number;
+  serverRateLimitPerMinute?: number;
   idleTimeoutMs?: number;
   sweepIntervalMs?: number;
   /**
@@ -79,6 +81,7 @@ export function createHttpApp(
     authMiddleware,
     maxSessions = DEFAULT_MAX_SESSIONS,
     maxSessionsPerUser = DEFAULT_MAX_SESSIONS_PER_USER,
+    serverRateLimitPerMinute,
     idleTimeoutMs = DEFAULT_SESSION_IDLE_TIMEOUT_MS,
     sweepIntervalMs = DEFAULT_SESSION_SWEEP_INTERVAL_MS,
     preMcpRouteInstaller,
@@ -171,16 +174,23 @@ export function createHttpApp(
     }
   };
 
+  const leastRecentlyUsed = (
+    candidates: Array<[string, SessionEntry]>
+  ): [string, SessionEntry] | undefined =>
+    candidates.reduce<[string, SessionEntry] | undefined>(
+      (acc, cur) => (!acc || cur[1].lastActivity < acc[1].lastActivity ? cur : acc),
+      undefined
+    );
+
   // Only sessions quiet for a while are fair game, so a burst of new
   // connections can't kick out someone mid-conversation.
   const evictLeastRecentlyUsed = (now: number = Date.now()): boolean => {
     const cutoff = now - MIN_EVICTION_IDLE_MS;
-    const oldest = Object.entries(sessions)
-      .filter(([, entry]) => !isBusy(entry) && entry.lastActivity <= cutoff)
-      .reduce<[string, SessionEntry] | undefined>(
-        (acc, cur) => (!acc || cur[1].lastActivity < acc[1].lastActivity ? cur : acc),
-        undefined
-      );
+    const oldest = leastRecentlyUsed(
+      Object.entries(sessions).filter(
+        ([, entry]) => !isBusy(entry) && entry.lastActivity <= cutoff
+      )
+    );
     if (!oldest) return false;
     console.error(
       `Session cap reached (${maxSessions}); evicting least recently used session`
@@ -191,17 +201,22 @@ export function createHttpApp(
 
   // One user's sessions can't crowd out everyone else: past their own cap,
   // their least recently used non-busy session makes way for the new one.
-  const hasRoomForUser = (owner: string | null): boolean => {
+  const hasRoomForUser = (owner: string | null, now: number = Date.now()): boolean => {
     if (owner === null) return true;
-    const own = Object.entries(sessions).filter(([, e]) => e.owner === owner);
+    const own = Object.entries(sessions).filter(
+      ([, e]) => e.owner !== null && sameFingerprint(e.owner, owner)
+    );
     if (own.length < maxSessionsPerUser) return true;
-    const oldest = own
-      .filter(([, e]) => !isBusy(e))
-      .reduce<[string, SessionEntry] | undefined>(
-        (acc, cur) => (!acc || cur[1].lastActivity < acc[1].lastActivity ? cur : acc),
-        undefined
-      );
+    // A short idle floor stops a user with more live clients than the cap
+    // from endlessly bumping their own active sessions.
+    const cutoff = now - MIN_USER_EVICTION_IDLE_MS;
+    const oldest = leastRecentlyUsed(
+      own.filter(([, e]) => !isBusy(e) && e.lastActivity <= cutoff)
+    );
     if (!oldest) return false;
+    console.error(
+      `Per-user session cap reached (${maxSessionsPerUser}); closing that user's least recently used session`
+    );
     closeSession(oldest[0]);
     return true;
   };
@@ -255,7 +270,7 @@ export function createHttpApp(
     return sameFingerprint(entry.owner, requester.owner);
   };
 
-  const tenantLimiters = new TenantLimiters();
+  const tenantLimiters = new TenantLimiters({ serverPerMinute: serverRateLimitPerMinute });
 
   const clientFor = (requester: Requester): SyncroApiClient | null => {
     if (requester.creds) {
@@ -276,6 +291,9 @@ export function createHttpApp(
       return;
     }
     if (!hasRoomForUser(requester.owner)) {
+      console.error(
+        `Per-user session cap reached (${maxSessionsPerUser}); all recently active, rejecting`
+      );
       res.status(429).json({ error: "Too many open sessions for this user" });
       return;
     }

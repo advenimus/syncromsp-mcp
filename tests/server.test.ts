@@ -7,6 +7,7 @@ import { hasCachedDomains } from "../src/domains/index.js";
 import {
   createHttpApp,
   MIN_EVICTION_IDLE_MS,
+  MIN_USER_EVICTION_IDLE_MS,
   type HttpAppHandle,
 } from "../src/http-app.js";
 
@@ -638,6 +639,10 @@ describe("createHttpApp — per-user Syncro credentials", () => {
     expect(hasCachedDomains(client)).toBe(false);
   });
 
+  const age = (sid: string, ms: number) => {
+    handle.sessions[sid] = { ...handle.sessions[sid]!, lastActivity: Date.now() - ms };
+  };
+
   const limiterOf = (sid: string) =>
     (handle.sessions[sid]!.client as unknown as { rateLimiter: unknown }).rateLimiter;
 
@@ -654,9 +659,9 @@ describe("createHttpApp — per-user Syncro credentials", () => {
     await start(null, 2);
     const bob = (await openSessionAs("bob")).headers.get("mcp-session-id")!;
     const first = (await openSessionAs("alice")).headers.get("mcp-session-id")!;
-    await new Promise((r) => setTimeout(r, 5));
     const second = (await openSessionAs("alice")).headers.get("mcp-session-id")!;
-    await new Promise((r) => setTimeout(r, 5));
+    age(first, MIN_USER_EVICTION_IDLE_MS + 2000);
+    age(second, MIN_USER_EVICTION_IDLE_MS + 1000);
     const third = await openSessionAs("alice");
 
     expect(third.status).toBe(200);
@@ -665,6 +670,15 @@ describe("createHttpApp — per-user Syncro credentials", () => {
     expect(ids).toContain(second);
     expect(ids).toContain(third.headers.get("mcp-session-id")!);
     expect(ids).toContain(bob);
+  });
+
+  it("returns 429 instead of closing a session the user used in the last minute", async () => {
+    await stop();
+    await start(null, 1);
+    const sid = (await openSessionAs("alice")).headers.get("mcp-session-id")!;
+    const res = await openSessionAs("alice");
+    expect(res.status).toBe(429);
+    expect(Object.keys(handle.sessions)).toEqual([sid]);
   });
 
   it("returns 429 when every one of the user's sessions is busy", async () => {

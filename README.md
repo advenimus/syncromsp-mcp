@@ -141,7 +141,7 @@ SYNCRO_SUBDOMAIN=yourcompany              # lock sign-in to one account
 
 Do **not** set `SYNCRO_API_KEY` for this setup. It is ignored in HTTP sign-in mode.
 
-**Hosting for any Syncro account:** set `MCP_ALLOW_ANY_SUBDOMAIN=true` and leave `SYNCRO_SUBDOMAIN` unset. The sign-in page then asks for both the subdomain and the API key, so any Syncro tenant can connect with its own credentials. Each tenant only ever reaches its own Syncro account, gets its own outbound rate budget, and each user is limited to `MCP_MAX_SESSIONS_PER_USER` open sessions.
+**Hosting for any Syncro account:** set `MCP_ALLOW_ANY_SUBDOMAIN=true` and leave `SYNCRO_SUBDOMAIN` unset. The sign-in page then asks for both the subdomain and the API key, so any Syncro tenant can connect with its own credentials. Each tenant only ever reaches its own Syncro account, gets its own outbound rate budget inside a server-wide one, and each user is limited to `MCP_MAX_SESSIONS_PER_USER` open sessions.
 
 ### Step 2: Deploy
 
@@ -324,7 +324,8 @@ Older versions used one shared password (`MCP_AUTH_SECRET`) and one server-wide 
 | `MCP_I_UNDERSTAND_INSECURE` | If `MCP_AUTH=false` | — | Must be `true` to start the server with auth disabled. Foot-gun guard. |
 | `MCP_TOOL_MODE` | No | `flat` | `flat` (all tools) or `navigation` (lazy domains) |
 | `MCP_SESSION_IDLE_MINUTES` | No | `60` | HTTP sessions unused this long are closed (checked every 5 minutes). Clients reconnect automatically. |
-| `MCP_MAX_SESSIONS_PER_USER` | No | `25` | Open HTTP sessions one signed-in user may hold. Past it, that user's least recently used idle session is closed; if all are busy, the new one gets a 429. |
+| `MCP_SERVER_RATE_LIMIT_PER_MINUTE` | No | `180` | Syncro calls per minute from this whole server, on top of each tenant's own 180/min budget. Syncro documents its limit per IP, and all tenants share the server's IP. Raise it only if you know Syncro counts your tenants separately. |
+| `MCP_MAX_SESSIONS_PER_USER` | No | `25` | Open HTTP sessions one signed-in user may hold. Past it, that user's least recently used session idle for at least a minute is closed; if none qualifies, the new one gets a 429. |
 
 ---
 
@@ -404,7 +405,7 @@ Bring both up: `docker compose up -d` in each directory. New releases on `:lates
 - **Line items** cannot be added inline during resource creation — always add them via separate API calls after creating the parent resource
 - **Ticket comments** have 3 modes: email reply (`do_not_email: false`), public note (`do_not_email: true, hidden: false`), and private note (`hidden: true`)
 - Some resources have no DELETE endpoint (vendors, leads, products, assets) — use `disabled: true` via update instead
-- **Rate limit**: 180 requests per minute per IP (enforced by Syncro, managed by built-in rate limiter). In HTTP mode the budget is kept per Syncro tenant, shared by all of that tenant's users.
+- **Rate limit**: 180 requests per minute per IP (enforced by Syncro, managed by built-in rate limiter). In HTTP mode each Syncro tenant has its own 180/min budget, and all calls also share one server-wide budget (`MCP_SERVER_RATE_LIMIT_PER_MINUTE`, default 180) because every tenant calls Syncro from the same IP.
 
 ---
 
