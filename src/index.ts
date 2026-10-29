@@ -114,9 +114,17 @@ if (transport === "http") {
     );
   }
 
+  const idleMinutesRaw = process.env.MCP_SESSION_IDLE_MINUTES;
+  const idleMinutes = idleMinutesRaw ? Number(idleMinutesRaw) : undefined;
+  if (idleMinutes !== undefined && !(Number.isFinite(idleMinutes) && idleMinutes > 0)) {
+    console.error("ERROR: MCP_SESSION_IDLE_MINUTES must be a positive number.");
+    process.exit(1);
+  }
+
   const { app, shutdown: shutdownApp } = createHttpApp(client, {
     toolMode,
     authMiddleware,
+    idleTimeoutMs: idleMinutes !== undefined ? idleMinutes * 60 * 1000 : undefined,
     preMcpRouteInstaller: oauthInstaller,
   });
 

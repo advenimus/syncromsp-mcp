@@ -279,6 +279,7 @@ MCP_AUTH=false MCP_I_UNDERSTAND_INSECURE=true docker compose up -d
 | `MCP_AUTH_SECRET` | For Docker | — | Access key users enter to authorize. Minimum 32 chars; weak/default values rejected at startup. |
 | `MCP_I_UNDERSTAND_INSECURE` | If `MCP_AUTH=false` | — | Must be `true` to start the server with auth disabled. Foot-gun guard. |
 | `MCP_TOOL_MODE` | No | `flat` | `flat` (all tools) or `navigation` (lazy domains) |
+| `MCP_SESSION_IDLE_MINUTES` | No | `60` | HTTP sessions unused this long are closed (checked every 5 minutes). Clients reconnect automatically. |
 
 ---
 
