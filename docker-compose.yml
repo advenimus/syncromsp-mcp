@@ -1,10 +1,8 @@
 services:
   syncro-mcp:
-    # Defaults to :latest so Watchtower (or equivalent) can auto-update the
-    # running container as new releases are published. The release workflow
-    # publishes both :v<version> and :latest pointing at the same digest, so
-    # operators who want stricter supply-chain control can pin to a specific
-    # tag (e.g. :v1.6.1) and update deliberately.
+    # The release workflow publishes both :v<version> and :latest pointing at
+    # the same digest. For production, pin a specific tag (e.g. :v2.1.1) and
+    # update deliberately. See SECURITY.md.
     image: ghcr.io/advenimus/syncromsp-mcp:latest
     # To build locally instead: comment out 'image' above and uncomment:
     # build: .
@@ -40,6 +38,8 @@ services:
       - MCP_SERVER_RATE_LIMIT_PER_MINUTE=${MCP_SERVER_RATE_LIMIT_PER_MINUTE:-180}
       # Recommended: only these client return addresses may register.
       - MCP_ALLOWED_REDIRECT_URIS=${MCP_ALLOWED_REDIRECT_URIS:-}
+      # Extra host names to answer to besides the MCP_BASE_URL host.
+      - MCP_ALLOWED_HOSTS=${MCP_ALLOWED_HOSTS:-}
     read_only: true
     cap_drop:
       - ALL
