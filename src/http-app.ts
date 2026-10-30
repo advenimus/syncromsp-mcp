@@ -106,7 +106,7 @@ export function createHttpApp(
 
   // 2. Security headers — set on every response BEFORE route handlers run.
   //    Note: no global Content-Security-Policy here — the OAuth login page
-  //    in src/auth.ts sets its own CSP and a global one would conflict.
+  //    in src/auth/login-page.ts sets its own CSP and a global one would conflict.
   app.use((_req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
