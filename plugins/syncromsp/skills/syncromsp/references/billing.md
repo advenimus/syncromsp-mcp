@@ -123,4 +123,4 @@ Payment profiles let you charge later without re-collecting card info.
 - `estimates_update_line_item` / `estimates_delete_line_item` — same for estimates
 - `scheduling_update_line_item` / `scheduling_remove_line_item` — same for recurring schedules
 
-If a line was charged from a timer (labor), deleting the line item may not delete the underlying time log — verify with `time_list_timelogs`.
+If a line was charged from a timer (labor), deleting the line item may not delete the underlying timer entry. Verify with `time_list_timers({ ticket_id })`. `time_list_timelogs` holds employee clock in/out records, not ticket labor, so it will not show it.
