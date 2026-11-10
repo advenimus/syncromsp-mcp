@@ -103,7 +103,7 @@ When the user asks "what's happening on ticket X" or similar:
 
 1. `tickets_get` for the ticket header (status, assignee, customer, problem_type)
 2. `tickets_get_comments` for the full thread
-3. `time_list_timelogs` filtered by ticket for labor entries
+3. `time_list_timers({ ticket_id })` for labor entries (not `time_list_timelogs`, which holds employee clock in/out records and cannot filter by ticket)
 4. Summarize chronologically, with hyperlinks to the ticket and any referenced records
 
 ## Linking tickets to other records
