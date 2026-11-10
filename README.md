@@ -46,6 +46,8 @@ The release zip is always published at:
 https://github.com/advenimus/syncromsp-mcp/releases/latest/download/syncromsp-skill.zip
 ```
 
+The zip is rebuilt on every release. Skill-only changes committed as `docs(skill): ...` cut a patch release, so they reach the zip.
+
 ---
 
 ## Prerequisites
